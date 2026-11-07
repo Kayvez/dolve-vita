@@ -95,7 +95,7 @@ Sul sito gratuito (Render) il server ogni tanto si "addormenta" o si riavvia, e 
 Sul tabellone compare la scritta verde "💾 Salvataggio sicuro attivo". Se invece vedi la scritta rossa "Salvataggio temporaneo", non è ancora collegato.
 
 ### 🗺️ Tabellone lungo (60 caselle)
-Di default il tabellone ora è più lungo (60 caselle). Si può tornare a quello classico da 40 con il pulsante "🗺️ Tabellone" prima di iniziare. Nuovi colori (verde acqua e viola) e nuove caselle: 🎰 Casinò, 🎡 Ruota della fortuna, 🃏 Mercato degli Assi, 🌀 Teletrasporto, 🧖 Relax, 🏆 Premio di città e ⚡ Imprevisti (un mazzo nuovo, quasi tutto guai).
+Di default il tabellone ora è più lungo (60 caselle), largo come lo schermo dell'iPad, con l'elenco delle giocatrici dentro al riquadro centrale. Si può tornare a quello classico da 40 con il pulsante "🗺️ Tabellone" prima di iniziare. Nuovi colori (verde acqua e viola) e nuove caselle: 🎰 Casinò, 🎡 Ruota della fortuna, 🃏 Mercato degli Assi, 🌀 Teletrasporto, 🧖 Relax, 🏆 Premio di città e ⚡ Imprevisti (un mazzo nuovo, quasi tutto guai).
 
 ### 🗽 Cosa fare quando hai tutto un colore
 Affitto raddoppiato subito, poi si costruiscono 🏠 case (fino a 4), 🏨 albergo e infine il 🗽 **Monumento**: costa il doppio di una casa e l'affitto sale ancora più su.

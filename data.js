@@ -83,14 +83,14 @@
     'parking', 'verona', FORT, 'padova', 'trieste', 'napoli', 'siena', 'lucca', 'acquedotto', 'pisa',
     'gotojail', 'capri', 'positano', SORP, 'amalfi', 'firenze', FORT, 'venezia', 'shopping', 'roma']);
   const BOARD60 = ids(['go', 'sassi', SORP, 'albero', 'tassa', 'milano', 'cinque', FORT, 'como', 'portofino',
-    'casino', 'trento', 'bolzano', IMPR, 'cortina', 'torino',
-    'jail', 'assisi', 'elettrica', 'orvieto', 'spoleto', 'ruota', 'termini', 'bologna', SORP, 'parma', 'modena', 'terme', 'mercato', 'relax',
-    'parking', 'verona', FORT, 'padova', 'trieste', 'teletrasporto', 'napoli', 'siena', 'lucca', 'palermo', 'acquedotto', 'pisa', 'taormina', IMPR, 'cefalu', 'bari',
-    'gotojail', 'rete', 'bonus', 'capri', 'positano', SORP, 'amalfi', 'firenze', SORP, FORT, 'venezia', 'shopping', IMPR, 'roma']);
+    'casino', 'trento', 'bolzano', IMPR, 'cortina', 'torino', 'mercato', 'relax', 'bonus',
+    'jail', 'assisi', 'elettrica', 'orvieto', 'spoleto', 'ruota', 'termini', 'bologna', SORP, 'parma', 'modena',
+    'parking', 'verona', FORT, 'padova', 'trieste', 'teletrasporto', 'napoli', 'siena', 'lucca', 'palermo', 'acquedotto', 'pisa', 'taormina', IMPR, 'cefalu', 'bari', 'terme', 'rete', SORP,
+    'gotojail', 'capri', 'positano', SORP, 'amalfi', 'firenze', FORT, 'venezia', 'shopping', IMPR, 'roma']);
   // ogni tabellone: colonne x righe (i quattro angoli sono 0, cols-1, ...)
   const BOARDS = {
     40: { size: 40, cols: 11, rows: 11, squares: BOARD40, label: 'Classico (40 caselle)' },
-    60: { size: 60, cols: 17, rows: 15, squares: BOARD60, label: 'Lungo (60 caselle)' },
+    60: { size: 60, cols: 20, rows: 12, squares: BOARD60, label: 'Lungo (60 caselle)' },
   };
   const BOARD = BOARD40; // compatibilità
 

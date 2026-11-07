@@ -147,6 +147,8 @@
   }
 
   function buildBoard() {
+    const sd = $('#side');
+    if (sd && sd.parentNode !== $('#app')) $('#app').appendChild(sd); // salva l'elenco giocatrici prima di ricostruire
     const el = $('#board');
     el.innerHTML = '';
     el.style.gridTemplateColumns = `1.5fr repeat(${GC - 2}, 1fr) 1.5fr`;
@@ -172,14 +174,16 @@
     c.id = 'center';
     c.style.gridArea = `2 / 2 / ${GR} / ${GC}`;
     c.innerHTML = `
-      <div id="title">${D.TITLE}</div>
-      <div id="subtitle">il gioco delle serate</div>
-      <div id="eventBar"></div>
-      <div id="turn"></div>
-      <div id="hint"></div>
-      <div id="diceArea"><div id="dice"></div><div id="diceSum"></div></div>
-      <div id="cMain"></div>
-      <div id="log"></div>
+      <div id="cLeft">
+        <div id="title">${D.TITLE}</div>
+        <div id="subtitle">il gioco delle serate</div>
+        <div id="eventBar"></div>
+        <div id="turn"></div>
+        <div id="hint"></div>
+        <div id="diceArea"><div id="dice"></div><div id="diceSum"></div></div>
+        <div id="cMain"></div>
+        <div id="log"></div>
+      </div>
       <div id="cardPop"></div>
       <div id="announce"></div>
       <div id="intro"></div>`;
@@ -193,7 +197,15 @@
     const w = innerWidth, h = innerHeight;
     const portrait = w < h * 1.25;
     $('#app').classList.toggle('portrait', portrait);
-    const availW = portrait ? w - 16 : w - 16 - 14 - 230;
+    // tabellone largo: l'elenco delle giocatrici sta dentro al riquadro centrale, così le caselle sono più grandi
+    const inside = !portrait && GC >= 18;
+    const side = $('#side'), center = $('#center');
+    if (side && center) {
+      if (inside && side.parentNode !== center) center.insertBefore(side, $('#announce'));
+      else if (!inside && side.parentNode !== $('#app')) $('#app').appendChild(side);
+    }
+    $('#app').classList.toggle('inside', inside);
+    const availW = portrait ? w - 16 : inside ? w - 16 : w - 16 - 14 - 230;
     const availH = portrait ? h - (GC > 11 ? 230 : 190) : h - 16;
     const u = Math.max(18, Math.min(availW / (GC + 1), availH / (GR + 1)));
     const root = document.documentElement.style;

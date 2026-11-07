@@ -498,7 +498,7 @@ const at = (g, id) => g.BOARD.findIndex((q) => q.id === id);
 t('60 caselle: prigione a 16, giro completo di 60', () => {
   const g = new60();
   assert.strictEqual(g.N, 60);
-  assert.strictEqual(g.jailIdx, 16);
+  assert.strictEqual(g.jailIdx, 19);
   const p = g.cur; p.pos = 58; dice(1, 2);
   const cash = p.cash;
   g.act(p.id, { type: 'roll' });
@@ -511,7 +511,7 @@ t('60 caselle: vai in prigione manda in casella 16', () => {
   const g = new60();
   const p = g.cur; p.pos = at(g, 'gotojail') - 2; dice(1, 1);
   g.act(p.id, { type: 'roll' });
-  assert.ok(p.inJail); assert.strictEqual(p.pos, 16);
+  assert.ok(p.inJail); assert.strictEqual(p.pos, 19);
 });
 
 t('colori nuovi: tutto il verde acqua permette di costruire e il Monumento arriva a 6', () => {
@@ -592,7 +592,7 @@ t('salvataggio: una partita sul tabellone lungo si ricarica identica', () => {
   const p = g.cur; dice(2, 3);
   g.act(p.id, { type: 'roll' });
   const copy = Game.fromJSON(JSON.parse(JSON.stringify(g)), rng);
-  assert.strictEqual(copy.N, 60); assert.strictEqual(copy.jailIdx, 16);
+  assert.strictEqual(copy.N, 60); assert.strictEqual(copy.jailIdx, 19);
   assert.strictEqual(copy.phase, g.phase);
   assert.ok(copy.view(p.id, new Set()).size === 60);
   assert.ok(copy.decks.imprevisto.length > 0);
