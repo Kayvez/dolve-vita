@@ -217,6 +217,20 @@
   }
 
   // ---------- parti della schermata di gioco ----------
+  function fmtLeft(ms) { const t = Math.max(0, Math.floor(ms / 1000)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); }
+  function extraBar(m) {
+    let h = '';
+    if (S.status !== 'playing') return h;
+    const bits = [];
+    if (S.endsAt) bits.push(`<span>⏰ <b class="cd" data-end="${S.endsAt}">${fmtLeft(S.endsAt - Date.now())}</b></span>`);
+    if (S.teamsOn && m.team != null) { const mates = S.players.filter((q) => q.team === m.team && q.id !== m.id).map((q) => q.emoji + ' ' + esc(q.name)).join(', '); bits.push(`<span>👯 ${TEAMICON[m.team] || ''} con ${mates}</span>`); }
+    if (S.bountyId === S.you) bits.push('<span class="bad">💰 Hai la taglia! Chi ti fa pagare guadagna</span>');
+    else if (S.bountyId) { const b = P(S.bountyId); bits.push(`<span>💰 Taglia su ${b.emoji} ${esc(b.name)}</span>`); }
+    if (bits.length) h += `<div class="xbar">${bits.join('')}</div>`;
+    if (S.myMission) h += `<div class="mission">🎯 <b>Missione segreta:</b> ${esc(S.myMission)} <small>(+€300)${m.missionsDone ? ' · fatte: ' + m.missionsDone : ''}</small></div>`;
+    return h;
+  }
+  setInterval(() => { document.querySelectorAll('.cd').forEach((el) => { el.textContent = fmtLeft(Number(el.dataset.end) - Date.now()); }); }, 1000);
   function headerHTML(m) {
     const cur = S.status === 'playing' ? P(S.turn) : null;
     let bar = '';
@@ -224,10 +238,10 @@
     if (cur) bar = S.turn === S.you ? `<div class="turnbar me">⭐ Tocca a te!${round}</div>` : `<div class="turnbar">Tocca a ${cur.emoji} ${esc(cur.name)}${round}</div>`;
     const d = delta && Date.now() < delta.until ? `<span class="delta ${delta.v > 0 ? 'up' : 'down'}">${delta.v > 0 ? '+' : '−'}${Math.abs(delta.v)}</span>` : '';
     return `<header><div class="hrow"><div class="av" style="--c:${m.color}">${m.emoji}</div>
-      <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : nm(m.pos)}</div></div>
+      <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : nm(m.pos)}${S.settings.winWorth && S.myWorth != null ? ' · 💎 ' + S.myWorth + '/' + S.settings.winWorth : ''}${S.late ? ' · 🔥 fase finale' : ''}</div></div>
       <button class="hq" data-act="help">?</button>
       <div class="hbadges">${m.shield ? '🛡️' : ''}${m.x2 ? '✖️2' : ''}${m.skip ? '⏭️' : ''}</div>
-      <div class="hcash">${m.cash !== null ? eur(m.cash) : ''}${d}</div></div>${bar}</header>`;
+      <div class="hcash">${m.cash !== null ? eur(m.cash) : ''}${d}</div></div>${bar}${extraBar(m)}</header>`;
   }
 
   function deedMini(idx) {
@@ -349,6 +363,14 @@
         <div class="row"><button class="btn green ${m.cash >= sl.price ? '' : 'off'}" data-act="${m.cash >= sl.price ? 'saleAccept' : 'why'}" data-w="Non hai abbastanza soldi">✅ Accetto</button><button class="btn ghost" data-act="saleDecline">❌ No grazie</button></div>`;
       else if (sl.from === S.you) html += `<p class="muted" style="text-align:center">Aspetta la risposta di ${to.emoji} ${esc(to.name)}…</p><button class="btn ghost" data-act="saleCancel">Ritira l'offerta</button>`;
       else html += `<p class="muted" style="text-align:center">${seller.emoji} ${esc(seller.name)} offre la proprietà a ${to.emoji} ${esc(to.name)}.</p>`;
+      return html + '</div>' + logHTML(3);
+    }
+
+    if (S.phase === 'dare' && S.dare) {
+      const dp = P(S.dare.pid);
+      html += `<div class="card"><h3>🎭 Sfida!</h3><p class="bigtxt" style="font-size:20px">${dp.emoji} ${esc(dp.name)} ${esc(S.dare.text)}</p>`;
+      if (S.dare.pid === S.you) html += `<div class="row"><button class="btn green" data-act="dareYes">✅ Fatto +€100</button><button class="btn ghost" data-act="dareNo">🙈 Passo −€50</button></div>`;
+      else html += `<p class="muted" style="text-align:center">Guardate bene: se ${esc(dp.name)} lo fa davvero, prende €100!</p>`;
       return html + '</div>' + logHTML(3);
     }
 
@@ -509,7 +531,9 @@
   let modal = null;            // null | 'help' | 'intro'
   let introFor = null;
   const openRules = new Set();
-  const FEAT = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions'];
+  const FEAT = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'teams', 'dares', 'cheat', 'banker', 'freeParking', 'auctions'];
+  const TLAB = { 0: 'senza timer', 30: '30 minuti', 45: '45 minuti', 60: '1 ora', 90: '1 ora e mezza' };
+  const TEAMICON = ['🟥', '🟦', '🟩', '🟨'];
   const DUR = { 0: 'senza limite', 20: '20 giri', 30: '30 giri', 50: '50 giri' };
 
   function ruleDetail(k) { return D.RULES[k].long.map((x) => `<p>${x}</p>`).join(''); }
@@ -535,10 +559,12 @@
         <div class="row"><button class="btn sm gold" data-act="vpreset" data-k="ultra">🎉 Voglio tutto (Ultra)</button><button class="btn sm ghost" data-act="vpreset" data-k="classic">📜 Solo classico</button></div>
         ${rows}</div>
       ${host ? `<div class="card"><h3>Impostazioni di ${esc(m.name)} ⭐</h3><div class="chips">
+        <button class="chip" data-act="set" data-k="winWorth">🏁 ${st.winWorth ? 'Traguardo ' + eur(st.winWorth) : 'Nessun traguardo'}</button>
         <button class="chip" data-act="set" data-k="boardSize">🗺️ Tabellone: ${st.boardSize === 40 ? 'classico 40' : 'lungo 60'}</button>
         <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
         <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button>
         <button class="chip" data-act="set" data-k="maxRounds">⏱️ Durata: ${DUR[st.maxRounds]}</button>
+        <button class="chip" data-act="set" data-k="timeLimit">⏰ Timer: ${TLAB[st.timeLimit || 0]}</button>
         <button class="chip ${st.autoEnd ? 'on' : ''}" data-act="set" data-k="autoEnd">⏭️ Fine turno automatico</button>
         <button class="chip ${st.showCash && !st.cheat && !st.banker ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
         <button class="btn green ${S.players.length < 2 ? 'off' : ''}" data-act="start">Inizia la partita</button></div>`
@@ -569,8 +595,8 @@
   }
 
   function renderEnded(m) {
-    const w = P(S.winner);
-    return `<div class="wrap"><div class="logo">🏆</div><div class="sub" style="font-size:24px;color:var(--gold);font-weight:800">${w ? w.emoji + ' ' + esc(w.name) : ''} ha vinto!</div>
+    const ws = (S.winners && S.winners.length ? S.winners : [S.winner]).map(P).filter(Boolean);
+    return `<div class="wrap"><div class="logo">🏆</div><div class="sub" style="font-size:24px;color:var(--gold);font-weight:800">${ws.map((w) => w.emoji + ' ' + esc(w.name)).join(' + ')} ${ws.length > 1 ? 'hanno vinto' : 'ha vinto'}!</div>
       <div class="card"><h3>Classifica finale</h3>${(S.ranking || []).map((r, i) => { const p = P(r.id); return `<p>${i + 1}. ${p.emoji} <b>${esc(p.name)}</b> — ${eur(r.worth)}</p>`; }).join('')}</div>
       <p class="sub">Per rigiocare: "Menu → Nuova partita" sul tabellone.</p></div>`;
   }
@@ -660,11 +686,15 @@
       case 'build': case 'sell': case 'mortgage': case 'unmortgage': await act({ type: a, idx: Number(d.i) }); return;
       case 'bankrupt': if (confirm('Confermi? Perdi tutto e esci dal gioco.')) await act({ type: 'bankrupt' }); return;
       case 'resign': if (confirm('Vuoi davvero arrenderti? Esci dal gioco e lasci tutto alla banca.')) await act({ type: 'bankrupt' }); return;
+      case 'dareYes': await act({ type: 'dareAnswer', done: true }); return;
+      case 'dareNo': await act({ type: 'dareAnswer', done: false }); return;
       case 'set': {
         const st = S.settings;
-        if (d.k === 'boardSize') await act({ type: 'settings', boardSize: st.boardSize === 40 ? 60 : 40 });
+        if (d.k === 'winWorth') { const o = [0, 3000, 5000, 8000]; await act({ type: 'settings', winWorth: o[(o.indexOf(st.winWorth) + 1) % o.length] }); }
+        else if (d.k === 'boardSize') await act({ type: 'settings', boardSize: st.boardSize === 40 ? 60 : 40 });
         else if (d.k === 'startCash') { const o = [1000, 1500, 2000, 3000]; await act({ type: 'settings', startCash: o[(o.indexOf(st.startCash) + 1) % o.length] }); }
         else if (d.k === 'maxRounds') { const o = [0, 20, 30, 50]; await act({ type: 'settings', maxRounds: o[(o.indexOf(st.maxRounds) + 1) % o.length] }); }
+        else if (d.k === 'timeLimit') { const o = [0, 30, 45, 60, 90]; await act({ type: 'settings', timeLimit: o[(o.indexOf(st.timeLimit || 0) + 1) % o.length] }); }
         else if (d.k === 'theme') { const o = Object.keys(D.THEMES); await act({ type: 'settings', theme: o[(o.indexOf(st.theme) + 1) % o.length] }); }
         else await act({ type: 'settings', [d.k]: !st[d.k] });
         return;

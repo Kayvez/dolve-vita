@@ -145,3 +145,8 @@ nav .bd { position: absolute; top: 4px; left: 58%; background: var(--red); color
 @keyframes shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
 .step { margin: 8px 0; line-height: 1.35; }
+
+.xbar { max-width: 520px; margin: 6px auto 0; display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; font-size: 13px; opacity: .95; }
+.xbar .bad { color: #ff9a9a; font-weight: 700; }
+.mission { max-width: 520px; margin: 6px auto 0; padding: 6px 10px; border-radius: 8px; background: rgba(255,215,0,.14); border: 1px dashed var(--gold); font-size: 14px; text-align: center; }
+.mission small { opacity: .75; }

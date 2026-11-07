@@ -125,6 +125,10 @@
       { text: '🤝 Fai una donazione: dai €25 alla giocatrice più povera.', fx: 'giveToPoorest', amount: 25 },
       { text: '🕶️ Fai il turista: salta il prossimo turno ma ritira €100.', fx: 'relaxCard', amount: 100 },
       { text: '🎲 Tira ancora i dadi dopo questo turno!', fx: 'extraRoll' },
+      { text: '🎭 Sfida! imita un animale e fa indovinare quale. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'imita un animale e fa indovinare quale' },
+      { text: '🎭 Sfida! dice una cosa bella a ciascuna delle altre giocatrici. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'dice una cosa bella a ciascuna delle altre giocatrici' },
+      { text: '🎭 Sfida! racconta il suo ricordo più imbarazzante. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'racconta il suo ricordo più imbarazzante' },
+      { text: '🎭 Sfida! balla per 10 secondi senza musica. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'balla per 10 secondi senza musica' },
     ],
     sorpresa: [
       { text: 'Errore bancario a tuo favore: ritira €200.', fx: 'collect', amount: 200 },
@@ -153,6 +157,10 @@
       { text: '🛡️ Assicurazione scudo: ricevi uno scudo.', fx: 'giveShield' },
       { text: '🔮 Un indovino ti dice di andare avanti di 5 caselle.', fx: 'moveBy', n: 5 },
       { text: '🧸 Vinci un peluche gigante: pesca un asso.', fx: 'giveAce' },
+      { text: '🎭 Sfida! parla con un accento strano finché non tocca di nuovo a lei. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'parla con un accento strano finché non tocca di nuovo a lei' },
+      { text: '🎭 Sfida! mima un film e le altre devono indovinarlo. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'mima un film e le altre devono indovinarlo' },
+      { text: '🎭 Sfida! fa la sua imitazione migliore di una persona presente. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'fa la sua imitazione migliore di una persona presente' },
+      { text: '🎭 Sfida! racconta il ricordo più bello che ha con una di voi. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'racconta il ricordo più bello che ha con una di voi' },
     ],
     // mazzo "Imprevisti": per lo più guai! (solo tabellone lungo)
     imprevisto: [
@@ -178,6 +186,8 @@
       { text: '🌪️ Una tromba d\'aria ti porta in una casella a caso!', fx: 'teleportRand' },
       { text: '🎭 Ti rubano lo scudo! (e se non ce l\'hai, paga €40)', fx: 'loseShield', amount: 40 },
       { text: '🚧 Strade chiuse: torna alla Partenza senza incassare nulla.', fx: 'toStart' },
+      { text: '🎭 Sfida! si fa un selfie buffissimo e lo mostra a tutte. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'si fa un selfie buffissimo e lo mostra a tutte' },
+      { text: '🎭 Sfida! dice tre cose che ama della giocatrice alla sua destra. Fatta: +€100. Rifiutata: -€50.', fx: 'dare', dare: 'dice tre cose che ama della giocatrice alla sua destra' },
     ],
   };
 
@@ -200,6 +210,10 @@
     saldi:   { icon: '🏷️', title: 'Saldi!', text: 'Le proprietà costano il 20% in meno.' },
     truce:   { icon: '🕊️', title: 'Tregua', text: 'Nessuno paga affitti in questo giro.' },
     bonus:   { icon: '🎁', title: 'Bonus di città', text: 'Tutte ricevono €50!' },
+    quake: { icon: '🌋', title: 'Terremoto!', text: 'Chi ha edifici ne perde subito uno.' },
+    taxman: { icon: '🧾', title: 'Controllo fiscale', text: 'Tutte pagano subito il 5% dei loro soldi.' },
+    bankStrike: { icon: '🏦', title: 'Sciopero della banca', text: 'La banca è chiusa: la Partenza non paga niente!' },
+    blackMarket: { icon: '🕶️', title: 'Mercato nero', text: 'Le proprietà costano il 30% in più.' },
   };
 
   // ---------- temi del tabellone: cambiano solo i nomi ----------
@@ -213,6 +227,23 @@
     gola: {
       label: '🍕 Gola',
       names: T(['Pane e Olio', 'Caffè Corretto', 'Autogrill Nord', 'Gelato Pistacchio', 'Spritz', 'Tiramisù', 'Pizza Margherita', 'Forno a Legna', 'Lasagne', 'Carbonara', 'Autogrill Sud', 'Cannolo', 'Arancino', 'Panettone', 'Tartufo Bianco', 'Bistecca', 'Parmigiano', 'Trattoria Centro', 'Mozzarella', 'Prosciutto', 'Cantina', 'Aceto Balsamico', 'Barolo', 'Champagne', 'Caviale', 'Mercato Rionale', 'Tartufo Nero', 'Aragosta', 'Mancia obbligatoria', 'Cena da chef', 'Digiuno', 'Aperitivo', 'Vai a dieta'], { trento: 'Speck', bolzano: 'Strudel', cortina: 'Polenta', palermo: 'Cassata', taormina: 'Granita', cefalu: 'Pasta alla Norma', torino: 'Gianduiotto', bari: 'Orecchiette', rete: 'Delivery', casino: 'Bisca', ruota: 'Giostra dei dolci', mercato: 'Mercato del gusto', teletrasporto: 'Teleporto', relax: 'Sonnellino', terme: 'Buffet extra', bonus: 'Stella Michelin' }),
+    },
+    potter: {
+      label: '⚡ Maghi',
+      names: {
+        go: 'Binario 9¾', sassi: 'Sottoscala', albero: 'Privet Drive', tassa: 'Tassa Gringott', milano: 'Hogwarts Express',
+        cinque: 'Diagon Alley', como: 'Tiri Vispi Weasley', portofino: 'Olivander', jail: 'Azkaban', assisi: 'Hogsmeade',
+        elettrica: 'Candele Fluttuanti', orvieto: 'Mielandia', spoleto: 'Testa di Porco', termini: 'Stazione di Hogsmeade',
+        bologna: 'Casa Grifondoro', parma: 'Casa Serpeverde', modena: 'Casa Corvonero', parking: 'Tre Manici di Scopa',
+        verona: 'Foresta Proibita', padova: 'Torre di Astronomia', trieste: 'Camera dei Segreti', napoli: 'Camino Metropolvere',
+        siena: 'Casa Tassorosso', lucca: 'Stanza delle Necessità', acquedotto: 'Lago Nero', pisa: 'Campo da Quidditch',
+        gotojail: 'Dissennatori', capri: 'La Tana', positano: 'Villa Conchiglia', amalfi: 'Grimmauld Place', firenze: 'Nottetempo',
+        venezia: 'Castello di Hogwarts', shopping: 'Shopping a Diagon Alley', roma: 'Banca Gringott',
+        trento: 'Valle di Godric', bolzano: 'Notturn Alley', cortina: 'Sala Grande', palermo: 'Ministero della Magia',
+        taormina: 'Reparto Misteri', cefalu: 'Sala dei Trofei', torino: 'Passaporta', bari: 'Thestral', rete: 'Gufi Postali',
+        casino: 'Sala da Gioco Magica', ruota: 'Giratempo', mercato: 'Mercato Magico', teletrasporto: 'Smaterializzazione',
+        relax: 'Pausa Burrobirra', terme: 'Bagno dei Prefetti', bonus: 'Coppa delle Case',
+      },
     },
   };
   // nameOf(tema, casella) – la casella è un oggetto del tabellone (o il suo id)
@@ -254,6 +285,14 @@
       long: ['Solo a inizio turno, prima di tirare i dadi, puoi prendere €100 dalla banca di nascosto: sul tabellone non si vede nulla.', 'Le altre possono accusarti: se avevi barato paghi €200 a chi ti ha scoperta, se era un\'accusa a vuoto paga €50 lei a te.', 'I soldi di tutte restano segreti sul tabellone.'] },
     banker: { icon: '🏦', title: 'Banchiere furbo', short: 'Uno di voi fa il banchiere e paga a mano… e può fregarvi.',
       long: ['A sorte uno diventa banchiere (gioca anche lui). I soldi della banca (Partenza e carte) li paga lui a mano.', 'Può dare tutto, tre quarti, metà o niente: quello che trattiene lo tiene per sé, di nascosto.', 'Se sospetti di aver ricevuto meno, accusalo: se ha davvero trattenuto, restituisce il doppio; se era onesto, paghi €50 tu. Una accusa a giro.', 'I soldi di tutte restano segreti sul tabellone.'] },
+    missions: { icon: '🎯', title: 'Missioni segrete', short: 'Ognuna ha un obiettivo segreto da compiere.',
+      long: ['A inizio partita ricevi una missione che vedi solo tu (es. possiedi 3 stazioni).', 'Quando la compi prendi €300 e ne arriva una nuova.', 'Le altre vedono solo quante missioni hai completato.'] },
+    bounty: { icon: '💰', title: 'Taglia sulla più ricca', short: 'Chi è in testa ha una taglia sulla testa.',
+      long: ['La giocatrice con più patrimonio ha la taglia: tutte lo vedono.', 'Chi si fa pagare l\'affitto da lei incassa €100 in più; chi la manda in prigione con una carta prende €150.'] },
+    teams: { icon: '👯', title: 'Squadre', short: 'Si gioca in coppie (con 4 o 6 giocatrici).',
+      long: ['Le squadre si formano a caso. Le compagne non si pagano affitti.', 'Vince la squadra che arriva a 1,6 volte il traguardo di patrimonio (somma delle due), o l\'ultima rimasta.', 'Funziona solo con un numero pari di giocatrici, almeno 4: altrimenti si gioca tutte contro tutte.'] },
+    dares: { icon: '🎭', title: 'Sfide', short: 'Carte "obbligo" da fare dal vivo.',
+      long: ['Nei mazzi ci sono carte Sfida: devi fare una cosa buffa davanti a tutte.', 'Se la fai prendi €100, se rifiuti paghi €50. Decidete voi se vale!'] },
     freeParking: { icon: '🍹', title: 'Piatto dell\'aperitivo', short: 'Tasse e multe finiscono al centro.',
       long: ['Chi si ferma sulla Pausa Aperitivo si prende tutto il piatto.'] },
     auctions: { icon: '🔨', title: 'Aste', short: 'Se non compri, la proprietà va all\'asta.',

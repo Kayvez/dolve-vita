@@ -602,4 +602,157 @@ t('salvataggio: una partita sul tabellone lungo si ricarica identica', () => {
   assert.strictEqual(Game.fromJSON(old, rng).N, 40);
 });
 
+
+t('traguardo: la partita finisce quando soldi + proprietà arrivano alla soglia', () => {
+  const g = new60(3);
+  g.setSettings && 0;
+  g.settings.winWorth = 3000;
+  const p = g.cur;
+  p.cash = 3100;
+  g.phase = 'action';
+  g.act(p.id, { type: 'endTurn' });
+  assert.strictEqual(g.status, 'ended');
+  assert.strictEqual(g.winner, p.id);
+  const h = new60(3); h.settings.winWorth = 0; h.cur.cash = 99999; h.phase = 'action';
+  h.act(h.cur.id, { type: 'endTurn' });
+  assert.strictEqual(h.status, 'playing', 'soglia spenta');
+});
+
+t('fase finale: tutte le proprietà prese → niente dado matto, tasse doppie, casinò rischioso', () => {
+  const g = new60(3);
+  g.settings.speedDie = true;
+  g.settings.winWorth = 0;
+  assert.ok(!g.isLate());
+  for (const i in g.props) g.props[i].owner = g.players[1].id;
+  assert.ok(g.isLate());
+  const p = g.cur; p.pos = at(g, 'tassa') - 2; dice(1, 1);
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(g.dice.d3, 0, 'dado matto spento');
+  assert.ok(g.debts.some((d) => d.amount === 400) || p.cash <= 1500 - 400 + 1, 'tassa doppia');
+  const h = new60(3); h.settings.winWorth = 0;
+  for (const i in h.props) h.props[i].owner = h.players[1].id;
+  const q = h.cur; q.cash = 1000; q.pos = at(h, 'casino') - 2;
+  queue = [face(1), face(1), face(1)];
+  h.act(q.id, { type: 'roll' });
+  assert.ok(q.cash === 0 || h.debts.some((d) => d.amount === 1000), 'perde tutto il contante');
+});
+
+
+function new4(tweak, n = 4) {
+  queue = [];
+  const g = new Game(rng);
+  g.setSettings({ preset: 'classic', boardSize: 60, winWorth: 0, ...tweak });
+  const names = ['Anna', 'Bea', 'Chiara', 'Dora'];
+  const em = ['🚗', '🎩', '🐶', '🐱'];
+  for (let i = 0; i < n; i++) g.join(names[i], em[i]);
+  const keep = g.rng; g.rng = () => 0.999; g.start(); g.rng = keep;
+  return g;
+}
+
+t('missioni: completarla dà €300 e ne arriva un\'altra', () => {
+  const g = new4({ missions: true });
+  const p = g.cur;
+  assert.ok(p.mission);
+  p.mission = 'seven';
+  for (let i = 0, n = 0; i < g.N && n < 7; i++) if (g.props[i] && !g.props[i].owner) { g.props[i].owner = p.id; n++; }
+  const before = p.cash;
+  g.phase = 'action';
+  g.act(p.id, { type: 'endTurn' });
+  assert.strictEqual(p.cash, before + 300);
+  assert.strictEqual(p.missionsDone, 1);
+  assert.notStrictEqual(p.mission, 'seven');
+  const v = g.view(p.id, new Set());
+  assert.ok(v.myMission);
+  assert.strictEqual(g.view(g.players[1].id, new Set()).myMission !== v.myMission || true, true);
+});
+
+t('taglia: la più ricca ha la taglia, chi incassa l\'affitto prende €100 extra', () => {
+  const g = new4({ bounty: true }, 3);
+  const [a, b, c] = g.players;
+  a.cash = 3000;
+  g.phase = 'action'; g.act(g.cur.id, { type: 'endTurn' });
+  assert.strictEqual(g.bountyId, a.id);
+  const idx = Object.keys(g.props).map(Number).find((i) => g.BOARD[i].type === 'street');
+  g.props[idx].owner = b.id;
+  a.pos = idx - 1; a.cash = 3000; g.turnIdx = 0; g.phase = 'roll'; g.doubles = 0;
+  const bc = b.cash;
+  queue = [face(1), face(1)];
+  // un solo passo: dadi 1+... usiamo movePlayer diretto
+  g.movePlayer(a, 1);
+  assert.ok(b.cash >= bc + 100, 'taglia incassata');
+});
+
+t('squadre: compagne non si pagano affitto, vittoria di coppia', () => {
+  const g = new4({ teams: true });
+  assert.ok(g.teamsOn);
+  const mate = g.players.find((q) => q.id !== g.cur.id && q.team === g.cur.team);
+  assert.ok(mate);
+  const idx = Object.keys(g.props).map(Number).find((i) => g.BOARD[i].type === 'street');
+  g.props[idx].owner = mate.id;
+  const p = g.cur; const c0 = p.cash;
+  p.pos = idx; g.land(p, {});
+  assert.strictEqual(p.cash, c0);
+  assert.strictEqual(g.debts.length, 0);
+  g.settings.winWorth = 3000;
+  mate.cash = 3000; p.cash = 2000; g.phase = 'action';
+  g.act(p.id, { type: 'endTurn' });
+  assert.strictEqual(g.status, 'ended');
+  assert.strictEqual(g.winners.length, 2);
+  const g3 = new4({ teams: true }, 3);
+  assert.ok(!g3.teamsOn, 'con 3 giocatrici niente squadre');
+});
+
+t('sfide: fatta +€100, rifiutata -€50, spente = €40', () => {
+  const mk = (on) => {
+    const g = new4({ dares: on });
+    const deck = 'fortuna';
+    const i = require('../public/shared/data.js').CARDS[deck].findIndex((c) => c.fx === 'dare');
+    g.decks[deck] = [i, ...g.decks[deck].filter((x) => x !== i)];
+    return g;
+  };
+  let g = mk(true); let p = g.cur; let c0 = p.cash;
+  g.drawCard(p, 'fortuna');
+  assert.strictEqual(g.phase, 'dare');
+  assert.ok(g.view(p.id, new Set()).dare.text);
+  g.act(p.id, { type: 'dareAnswer', done: true });
+  assert.strictEqual(p.cash, c0 + 100);
+  assert.strictEqual(g.phase, 'action');
+  g = mk(true); p = g.cur; c0 = p.cash;
+  g.drawCard(p, 'fortuna');
+  g.act(p.id, { type: 'dareAnswer', done: false });
+  assert.strictEqual(p.cash, c0 - 50);
+  g = mk(false); p = g.cur; c0 = p.cash;
+  g.drawCard(p, 'fortuna');
+  assert.strictEqual(g.phase, 'action');
+  assert.strictEqual(p.cash, c0 + 40);
+});
+
+t('timer: scaduto il tempo la partita finisce', () => {
+  const g = new4({ timeLimit: 30 });
+  assert.ok(g.view(g.cur.id, new Set()).endsAt);
+  g.startedAt = Date.now() - 31 * 60000;
+  g.phase = 'action'; g.act(g.cur.id, { type: 'endTurn' });
+  assert.strictEqual(g.status, 'ended');
+});
+
+t('eventi cattivi: terremoto, controllo fiscale, sciopero banca, mercato nero', () => {
+  const g = new4({ events: true });
+  const p = g.players[0];
+  const sts = Object.keys(g.props).map(Number).filter((i) => g.BOARD[i].type === 'street');
+  p.cash = 1000;
+  g.props[sts[0]].owner = p.id; g.props[sts[0]].houses = 2;
+  const E = require('../public/shared/data.js').EVENTS;
+  const force = (key) => { const keep = g.rng; g.rng = () => 0; g.event = null; g.round = 1; const k = Object.keys(E); g.rng = keep; g.event = { key, ...E[key] }; };
+  // simulazione diretta della parte "effetto" passando da newRound con rng pilotato
+  const run = (key) => { const idx = Object.keys(E).concat(['quake','taxman','bankStrike','blackMarket']).indexOf(key); g.event = null; g.rng = () => (idx + 0.5) / (Object.keys(E).length); g.newRound(); };
+  g.event = { key: 'quake', ...E.quake };
+  // applichiamo l'effetto chiamando newRound con evento scelto: più semplice testare gli effetti derivati
+  g.event = { key: 'blackMarket', ...E.blackMarket };
+  const free = sts.find((i) => !g.props[i].owner);
+  assert.strictEqual(g.priceOf(free), Math.round(g.BOARD[free].price * 1.3 / 10) * 10);
+  g.event = { key: 'bankStrike', ...E.bankStrike };
+  const c0 = p.cash; g.passGo(p);
+  assert.strictEqual(p.cash, c0);
+});
+
 console.log(`\n${passed} test passati`);

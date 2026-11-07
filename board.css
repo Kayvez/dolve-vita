@@ -14,7 +14,7 @@ html, body {
   color: var(--ink);
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
 }
-#app { height: 100%; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 8px; }
+#app { height: 100%; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 2px; }
 #app.portrait { flex-direction: column; }
 #boardWrap { width: var(--bw); height: var(--bh); flex: 0 0 auto; }
 #board {
@@ -66,8 +66,6 @@ html, body {
   transition: height .3s;
 }
 .owner.on { height: 1.3em; box-shadow: 0 -1px 0 rgba(0,0,0,.25); }
-.sq.owned { box-shadow: inset 0 0 0 .3em var(--oc); }
-.sq.owned .body { padding-bottom: 1.5em; }
 .owner.stamp { animation: stamp .6s cubic-bezier(.2,1.6,.4,1); }
 @keyframes stamp { 0% { transform: scale(3); opacity: 0; } 60% { transform: scale(.9); opacity: 1; } 100% { transform: scale(1); } }
 .sq.pass { animation: passflash .5s ease-out; }
@@ -89,7 +87,7 @@ html, body {
 #tokLayer { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
 .tok {
   position: absolute; left: 0; top: 0; width: calc(var(--u) * .78); height: calc(var(--u) * .78); margin: calc(var(--u) * -.39) 0 0 calc(var(--u) * -.39);
-  transition: transform .22s cubic-bezier(.3,.8,.4,1);
+  transition: transform .38s cubic-bezier(.3,.8,.4,1);
 }
 .tok .ti {
   width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center;
@@ -103,7 +101,7 @@ html, body {
 .tok.mine .ti { box-shadow: 0 0 0 .22em rgba(242,184,75,.85), 0 0 1.2em .3em rgba(242,184,75,.8), 0 .25em .5em rgba(0,0,0,.5); }
 .tok.mine::after { content: attr(data-n); position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: .1em; background: var(--gold); color: #222; font-weight: 800; font-size: calc(var(--u) * .24); padding: 0 .5em; border-radius: 1em; white-space: nowrap; }
 .tok.mine .ti { transform: scale(1.15); }
-.tok .ti.hop { animation: hop .22s ease-out; }
+.tok .ti.hop { animation: hop .38s ease-out; }
 @keyframes hop { 0% { transform: translateY(0) scale(1); } 45% { transform: translateY(-.9em) scale(1.18); } 100% { transform: translateY(0) scale(1); } }
 .tok.tele .ti { animation: tele .55s ease-out; }
 @keyframes tele { 0% { transform: scale(0) rotate(-200deg); } 70% { transform: scale(1.3) rotate(15deg); } 100% { transform: scale(1) rotate(0); } }
@@ -134,7 +132,7 @@ html, body {
 .die i.on { background: radial-gradient(circle at 35% 30%, #555, #000); }
 .die.speed { background: linear-gradient(145deg, #ffd24d, #f0992b); display: flex; align-items: center; justify-content: center; box-shadow: 0 .3em 0 #b8741c, 0 .7em 1.2em rgba(0,0,0,.45), inset 0 .15em .3em #ffe9a8; }
 .die.speed b { font-size: 3em; line-height: 1; color: #5a2d00; }
-.die.roll { animation: tumble .19s linear infinite; }
+.die.roll { animation: tumble .32s linear infinite; }
 .die.roll:nth-child(2) { animation-direction: reverse; }
 .die.land { animation: settle .6s cubic-bezier(.2,1.5,.4,1); }
 @keyframes tumble { 0% { transform: rotateX(0) rotateY(0) rotateZ(0) translateY(0); } 50% { transform: rotateX(180deg) rotateY(90deg) rotateZ(25deg) translateY(-.9em); } 100% { transform: rotateX(360deg) rotateY(180deg) rotateZ(0) translateY(0); } }
@@ -300,3 +298,14 @@ html, body {
 #app.lobby #center #players, #app.lobby #log, #app.lobby #diceArea, #app.lobby #turn, #app.lobby #hint { display: none; }
 #app.lobby #center #side { position: absolute; right: .8em; bottom: .6em; width: auto; margin: 0; z-index: 3; }
 #app.lobby #center #tools { flex-wrap: nowrap; }
+
+/* proprietario: striscia spessa colorata sul bordo esterno con la sua pedina; il colore della via resta intatto */
+.owner { left: auto; right: auto; top: auto; bottom: auto; height: auto; width: auto; font-size: 1.45em; transition: none; display: none; }
+.owner.on { display: flex; box-shadow: none; }
+.sq.bottom .owner { left: 0; right: 0; bottom: 0; height: 2.3em; }
+.sq.top .owner { left: 0; right: 0; top: 0; height: 2.3em; }
+.sq.left .owner { top: 0; bottom: 0; left: 0; width: 2.3em; }
+.sq.right .owner { top: 0; bottom: 0; right: 0; width: 2.3em; }
+.sq.bottom.owned .body { padding-bottom: 2.3em; } .sq.top.owned .body { padding-top: 2.3em; }
+.sq.left.owned .body { padding-left: 2.3em; } .sq.right.owned .body { padding-right: 2.3em; }
+.sq.owned { box-shadow: none; }

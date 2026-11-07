@@ -121,7 +121,7 @@ function scheduleAuto() {
   const BIG = ['rent', 'tax', 'go', 'notice', 'card', 'ace', 'jail', 'event', 'cheat', 'pay', 'bankrupt'];
   const bigNew = g.log.filter((l) => l.id > lastAutoLog && BIG.includes(l.kind)).length;
   lastAutoLog = g.logSeq;
-  const delay = (rolled ? 7500 + 230 * (g.dice.d1 + g.dice.d2 + (typeof g.dice.d3 === 'number' ? g.dice.d3 : 0)) : 4500) + Math.min(3, bigNew) * 3500;
+  const delay = (rolled ? 9000 + 420 * (g.dice.d1 + g.dice.d2 + (typeof g.dice.d3 === 'number' ? g.dice.d3 : 0)) : 5000) + Math.min(3, bigNew) * 4200;
   autoAt = Date.now() + delay;
   autoTimer = setTimeout(() => {
     autoTimer = null;

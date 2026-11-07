@@ -120,6 +120,12 @@ function step(g, rng) {
       else g.act(cur.id, { type: 'decline' });
       return true;
     }
+    case 'dare': {
+      stats.dares = (stats.dares || 0) + 1;
+      const r = g.act(cur.id, { type: 'dareAnswer', done: rng() < 0.6 });
+      if (!r.ok) throw new Error('dare: ' + r.error);
+      return true;
+    }
     case 'sale': {
       const sl = g.sale;
       const c = rng();
@@ -190,7 +196,7 @@ for (let n = 0; n < N; n++) {
   const seed = 1000 + n;
   const rng = mulberry32(seed);
   const g = new Game(rng);
-  g.setSettings({ boardSize: n % 5 === 4 ? 40 : 60, preset: n % 4 === 3 ? 'classic' : 'ultra', banker: n % 3 === 1, theme: ['italia', 'mondo', 'gola'][n % 3] });
+  g.setSettings({ boardSize: n % 5 === 4 ? 40 : 60, preset: n % 4 === 3 ? 'classic' : 'ultra', banker: n % 3 === 1, teams: n % 2 === 0, missions: n % 4 !== 3, bounty: n % 3 !== 0, dares: n % 5 !== 2, theme: ['italia', 'mondo', 'gola', 'potter'][n % 4] });
   const np = 2 + (n % 7);
   for (let i = 0; i < np; i++) g.join('G' + i, TOKENS[i]);
   if (n % 3 === 0) g.settings.freeParking = !g.settings.freeParking;

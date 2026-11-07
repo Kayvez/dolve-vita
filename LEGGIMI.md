@@ -108,3 +108,23 @@ Affitto raddoppiato subito, poi si costruiscono 🏠 case (fino a 4), 🏨 alber
 - **Pedine più grandi**, con il nome sopra a chi sta giocando.
 - **Tocca una casella** sul tabellone per leggerne la scheda e le regole.
 - **Suoni**: sull'iPad tocca la scritta gialla "Attiva i suoni" e controlla che il tasto muto laterale non sia attivo.
+
+## Novità 3.3
+- **Traguardo**: la partita finisce quando qualcuna arriva a €5000 tra soldi + proprietà + edifici (si cambia dal pulsante 🏁: 3000 / 5000 / 8000 / nessuno). Vince chi arriva prima a quella cifra.
+- **Fase finale 🔥**: quando tutte le proprietà sono state prese, il Dado matto non si usa più, tasse e multe valgono il DOPPIO, e casinò e ruota possono toglierti tutto il contante.
+- **Più lento e più calmo**: pedine, dadi e avvisi vanno più piano.
+- **Case più grandi** sul tabellone.
+- **Tema ⚡ Maghi** (Harry Potter) tra i temi: si cambia col pulsante del tema prima di iniziare.
+
+## Novità 4.0
+
+Sei regole nuove, tutte votabili dalla lobby (come le altre):
+
+- 🎯 **Missioni segrete**: ognuna ha un obiettivo che vede solo lei (es. "possiedi 3 stazioni"). Compiuta = €300 e ne arriva un'altra.
+- 💰 **Taglia sulla più ricca**: chi le fa pagare un affitto prende €100 extra; chi la manda in prigione con una carta prende €150.
+- 👯 **Squadre**: con 4 o 6 giocatrici si gioca in coppie. Le compagne non si pagano affitti. Vince la coppia che arriva a 1,6 volte il traguardo (somma dei patrimoni).
+- 🎭 **Sfide**: carte "obbligo" da fare dal vivo. Fatta +€100, rifiutata −€50.
+- ⏰ **Timer**: dalla lobby (chip "⏰") si sceglie 30/45/60/90 minuti: a tempo scaduto vince chi ha più patrimonio. Il conto alla rovescia è sul tabellone e sul telefono.
+- 🌋 **Eventi cattivi**: terremoto, controllo fiscale, sciopero della banca, mercato nero. Escono soprattutto nella fase finale.
+
+Nessuna nuova impostazione tecnica: Upstash resta com'è.
