@@ -62,24 +62,25 @@
     st('Roma', 'blue', 400, [50, 200, 600, 1400, 1700, 2000]),         // 39
   ];
 
+  // {n} nei testi viene sostituito col nome (del tema scelto) della casella n
   const CARDS = {
     fortuna: [
       { text: 'Avanza fino alla Partenza e ritira €200.', fx: 'moveTo', idx: 0 },
-      { text: 'Gita a Roma: avanza fino a Roma.', fx: 'moveTo', idx: 39 },
-      { text: 'Weekend alle Cinque Terre: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 6 },
-      { text: 'Prendi il treno per Milano Centrale. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 5 },
+      { text: 'Biglietto in prima classe per {39}: avanza fin lì.', fx: 'moveTo', idx: 39 },
+      { text: 'Weekend a {6}: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 6 },
+      { text: 'Prendi il treno per {5}. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 5 },
       { text: 'Avanza alla stazione più vicina. Se è di qualcuno, paga il doppio dell\'affitto.', fx: 'nearest', kind: 'station' },
       { text: 'Avanza alla stazione più vicina. Se è di qualcuno, paga il doppio dell\'affitto.', fx: 'nearest', kind: 'station' },
       { text: 'Avanza alla società più vicina. Se è di qualcuno, tira i dadi e paga 10 volte il risultato.', fx: 'nearest', kind: 'util' },
-      { text: 'La banca ti paga un dividendo di €50.', fx: 'collect', amount: 50 },
+      { text: '🥷 Colpo grosso! Rubi €100 a una giocatrice a caso (se non ha lo scudo).', fx: 'heist' },
       { text: 'Esci gratis di prigione. Conserva questa carta.', fx: 'jailCard' },
       { text: 'Torna indietro di 3 caselle.', fx: 'moveBy', n: -3 },
       { text: 'Vai direttamente in prigione. Non passare dalla Partenza.', fx: 'jail' },
       { text: 'Ripara i tuoi immobili: €25 per ogni casa, €100 per ogni albergo.', fx: 'repairs', house: 25, hotel: 100 },
       { text: 'Multa per eccesso di velocità: paga €15.', fx: 'pay', amount: 15 },
-      { text: 'Sei eletto presidente del condominio: paga €50 a ogni giocatore.', fx: 'payEach', amount: 50 },
-      { text: 'Il tuo investimento fruttifica: ritira €150.', fx: 'collect', amount: 150 },
-      { text: 'Vacanza a Venezia: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 37 },
+      { text: 'Sei eletto presidente del condominio: paga €50 a ogni giocatrice.', fx: 'payEach', amount: 50 },
+      { text: '🏹 Robin Hood! Prendi €100 alla giocatrice più ricca e dalli alla più povera.', fx: 'robinHood' },
+      { text: 'Vacanza a {37}: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 37 },
     ],
     sorpresa: [
       { text: 'Errore bancario a tuo favore: ritira €200.', fx: 'collect', amount: 200 },
@@ -87,8 +88,8 @@
       { text: 'Vendi un quadro al mercatino: ritira €50.', fx: 'collect', amount: 50 },
       { text: 'Esci gratis di prigione. Conserva questa carta.', fx: 'jailCard' },
       { text: 'Vai direttamente in prigione. Non passare dalla Partenza.', fx: 'jail' },
-      { text: 'È il tuo compleanno: ogni giocatore ti dà €10.', fx: 'collectEach', amount: 10 },
-      { text: 'Rimborso delle tasse: ritira €20.', fx: 'collect', amount: 20 },
+      { text: 'È il tuo compleanno: ogni giocatrice ti dà €10.', fx: 'collectEach', amount: 10 },
+      { text: '🃏 Fortuna sfacciata! Pesca una carta Asso nella manica.', fx: 'giveAce' },
       { text: 'L\'assicurazione sulla vita matura: ritira €100.', fx: 'collect', amount: 100 },
       { text: 'Spese d\'ospedale: paga €100.', fx: 'pay', amount: 100 },
       { text: 'Tasse scolastiche: paga €50.', fx: 'pay', amount: 50 },
@@ -96,13 +97,49 @@
       { text: 'Lavori in strada: paga €40 per ogni casa e €115 per ogni albergo.', fx: 'repairs', house: 40, hotel: 115 },
       { text: 'Secondo premio a un concorso di bellezza: ritira €10.', fx: 'collect', amount: 10 },
       { text: 'Eredità dalla zia: ritira €100.', fx: 'collect', amount: 100 },
-      { text: 'Vendi delle azioni: ritira €45.', fx: 'collect', amount: 45 },
+      { text: '🔀 Che confusione! Scambi il posto con una giocatrice a caso.', fx: 'swapRandom' },
       { text: 'Multa per sosta vietata: paga €20.', fx: 'pay', amount: 20 },
     ],
   };
 
+  // ---------- carte "Asso nella manica" ----------
+  const ACES = {
+    shield: { icon: '🛡️', name: 'Scudo', desc: 'Blocca il prossimo pagamento (affitto o tassa) o attacco che ti colpisce.', target: 'none' },
+    x2:     { icon: '✖️2', name: 'Doppio affitto', desc: 'Il prossimo affitto che incassi vale il doppio.', target: 'none' },
+    steal:  { icon: '🥷', name: 'Furto', desc: 'Rubi fino a €100 a una giocatrice.', target: 'player' },
+    swap:   { icon: '🔀', name: 'Cambio posto', desc: 'Scambi la tua posizione con quella di una giocatrice.', target: 'player' },
+    skip:   { icon: '⏭️', name: 'Salta turno', desc: 'Una giocatrice salta il suo prossimo turno.', target: 'player' },
+    party:  { icon: '🎉', name: 'Festa a sorpresa', desc: 'Tutte le altre ti danno €30.', target: 'none' },
+    warp:   { icon: '🚀', name: 'Teletrasporto', desc: 'Al posto del tiro, vai in qualsiasi casella.', target: 'square' },
+  };
+
+  // ---------- eventi di città (uno per ogni giro) ----------
+  const EVENTS = {
+    bonusGo: { icon: '🎰', title: 'Partenza d\'oro', text: 'Chi passa dalla Partenza incassa il doppio!' },
+    strike:  { icon: '🚧', title: 'Sciopero dei treni', text: 'Le stazioni non incassano affitti.' },
+    festa:   { icon: '🎪', title: 'Festa in città', text: 'Gli affitti del colore {group} valgono il doppio!' },
+    saldi:   { icon: '🏷️', title: 'Saldi!', text: 'Le proprietà costano il 20% in meno.' },
+    truce:   { icon: '🕊️', title: 'Tregua', text: 'Nessuno paga affitti in questo giro.' },
+    bonus:   { icon: '🎁', title: 'Bonus di città', text: 'Tutte ricevono €50!' },
+  };
+
+  // ---------- temi del tabellone: cambiano solo i nomi ----------
+  const T = (arr) => { const o = {}; [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39, 4, 38, 10, 20, 30].forEach((i, k) => { o[i] = arr[k]; }); return o; };
+  const THEMES = {
+    italia: { label: '🇮🇹 Italia', names: null },
+    mondo: {
+      label: '🌍 Giro del mondo',
+      names: T(['Marrakech', 'Istanbul', 'Gare du Nord', 'Bangkok', 'Rio de Janeiro', 'Sydney', 'Praga', 'Centrale Solare', 'Vienna', 'Amsterdam', "King's Cross", 'Berlino', 'Madrid', 'Barcellona', 'Mosca', 'Dubai', 'Singapore', 'Grand Central', 'Toronto', 'Seul', 'Dissalatore', 'Shanghai', 'San Francisco', 'Londra', 'Parigi', 'Tokyo Station', 'New York', 'Hong Kong', 'Tassa sul bagaglio', 'Duty Free di lusso', 'Dogana', 'Lounge VIP', 'Vai in dogana']),
+    },
+    gola: {
+      label: '🍕 Gola',
+      names: T(['Pane e Olio', 'Caffè Corretto', 'Autogrill Nord', 'Gelato Pistacchio', 'Spritz', 'Tiramisù', 'Pizza Margherita', 'Forno a Legna', 'Lasagne', 'Carbonara', 'Autogrill Sud', 'Cannolo', 'Arancino', 'Panettone', 'Tartufo Bianco', 'Bistecca', 'Parmigiano', 'Trattoria Centro', 'Mozzarella', 'Prosciutto', 'Cantina', 'Aceto Balsamico', 'Barolo', 'Champagne', 'Caviale', 'Mercato Rionale', 'Tartufo Nero', 'Aragosta', 'Mancia obbligatoria', 'Cena da chef', 'Digiuno', 'Aperitivo', 'Vai a dieta']),
+    },
+  };
+  const nameOf = (theme, i) => { const t = THEMES[theme]; return (t && t.names && t.names[i]) || BOARD[i].name; };
+
   const TOKENS = ['🚗', '🎩', '🐶', '🐱', '🚀', '👑', '🦄', '🍕', '🛵', '🍷', '🌸', '⚽'];
   const COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#d81b60', '#6d4c41'];
 
-  return { TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, CARDS, TOKENS, COLORS };
+  return { TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
 });

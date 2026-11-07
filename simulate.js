@@ -14,7 +14,7 @@ function mulberry32(a) {
 }
 
 const N = Number(process.argv[2] || 300);
-const stats = { ended: 0, capped: 0, stuck: 0, errors: 0, turns: 0, trades: 0, auctions: 0, bankrupt: 0, cards: 0 };
+const stats = { aces: 0, accuse: 0, chooses: 0, events: 0, ended: 0, capped: 0, stuck: 0, errors: 0, turns: 0, trades: 0, auctions: 0, bankrupt: 0, cards: 0 };
 
 function invariants(g, label) {
   const bad = (m) => { throw new Error(`INVARIANT ${m} [${label}] phase=${g.phase}`); };
@@ -22,6 +22,8 @@ function invariants(g, label) {
     if (p.cash < 0) bad(`cash negativo ${p.name} ${p.cash}`);
     if (!Number.isInteger(p.cash)) bad(`cash non intero ${p.cash}`);
     if (p.bankrupt && g.owned(p.id).length) bad('un fallito possiede ancora proprietà');
+    if (p.aces.length > 3) bad('troppi assi');
+    if (p.bankrupt && (p.aces.length || p.shield || p.x2)) bad('fallito con assi');
   }
   if (g.housesUsed() > 32) bad('troppe case');
   if (g.hotelsUsed() > 12) bad('troppi alberghi');
@@ -68,6 +70,20 @@ function randomTrade(g, rng, p) {
   }
 }
 
+function randomExtras(g, rng, cur) {
+  if (cur.aces.length && rng() < 0.4) {
+    const key = pick(rng, cur.aces);
+    const others = g.alive().filter((q) => q.id !== cur.id);
+    const a = { type: 'ace', ace: key, target: others.length ? pick(rng, others).id : null, idx: Math.floor(rng() * 40) };
+    const r = g.act(cur.id, a);
+    if (r.ok) stats.aces++;
+  }
+  if (g.settings.cheat) {
+    if (rng() < 0.3) g.act(cur.id, { type: 'cheat' });
+    for (const q of g.alive()) if (q.id !== cur.id && rng() < 0.1) { if (g.act(q.id, { type: 'accuse' }).ok) stats.accuse++; }
+  }
+}
+
 function step(g, rng) {
   const cur = g.cur;
   switch (g.phase) {
@@ -79,13 +95,15 @@ function step(g, rng) {
       }
       if (rng() < 0.1) randomManage(g, rng, cur);
       if (rng() < 0.05) randomTrade(g, rng, cur);
+      randomExtras(g, rng, cur);
+      if (g.phase !== 'roll') return true;
       const r = g.act(cur.id, { type: 'roll' });
       if (!r.ok) throw new Error('roll fallito: ' + r.error);
       return true;
     }
     case 'buy': {
       const sq = BOARD[cur.pos];
-      if (cur.cash >= sq.price && rng() < 0.75) g.act(cur.id, { type: 'buy' });
+      if (cur.cash >= g.priceOf(cur.pos) && rng() < 0.75) g.act(cur.id, { type: 'buy' });
       else g.act(cur.id, { type: 'decline' });
       return true;
     }
@@ -102,7 +120,18 @@ function step(g, rng) {
       } else g.act(pid, { type: 'pass' });
       return true;
     }
+    case 'choose': {
+      stats.chooses++;
+      const c = g.choice;
+      const r = c.kind === 'bus'
+        ? g.act(cur.id, { type: 'busPick', pick: pick(rng, ['d1', 'd2', 'sum']) })
+        : g.act(cur.id, { type: 'warpTo', idx: (cur.pos + 1 + Math.floor(rng() * 39)) % 40 });
+      if (!r.ok) throw new Error('choose: ' + r.error);
+      return true;
+    }
     case 'action': {
+      randomExtras(g, rng, cur);
+      if (g.phase !== 'action') return true;
       randomManage(g, rng, cur);
       if (rng() < 0.1) randomTrade(g, rng, cur);
       const r = g.act(cur.id, { type: 'endTurn' });
@@ -140,9 +169,10 @@ for (let n = 0; n < N; n++) {
   const seed = 1000 + n;
   const rng = mulberry32(seed);
   const g = new Game(rng);
+  g.setSettings({ preset: n % 4 === 3 ? 'classic' : 'ultra', theme: ['italia', 'mondo', 'gola'][n % 3] });
   const np = 2 + (n % 7);
   for (let i = 0; i < np; i++) g.join('G' + i, TOKENS[i]);
-  g.settings.freeParking = n % 3 === 0;
+  if (n % 3 === 0) g.settings.freeParking = !g.settings.freeParking;
   g.settings.auctions = n % 5 !== 0;
   const hostId = g.hostId;
   g.act(hostId, { type: 'start' });
@@ -167,6 +197,7 @@ for (let n = 0; n < N; n++) {
   if (g.status === 'ended') stats.ended++; else if (steps >= 20000) stats.capped++;
   stats.turns += g.turnCount;
   stats.cards += g.cardSeq;
+  stats.events += g.eventSeq;
 }
 console.log(JSON.stringify(stats));
 console.log('turni medi per partita finita:', Math.round(stats.turns / Math.max(1, stats.ended + stats.capped)));

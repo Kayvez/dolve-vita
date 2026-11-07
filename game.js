@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 let DATA;
 try { DATA = require('./public/shared/data.js'); } catch (e) { DATA = require('./data.js'); } // funziona anche con i file tutti nella stessa cartella
-const { TITLE, BOARD, CARDS, TOKENS, COLORS } = DATA;
+const { TITLE, BOARD, CARDS, ACES, EVENTS, THEMES, GROUP_NAMES, TOKENS, COLORS } = DATA;
 
 class GameError extends Error {}
 const fail = (m) => { throw new GameError(m); };
@@ -22,6 +22,13 @@ const MAX_HOTELS = 12;
 const GO_BONUS = 200;
 const JAIL_FINE = 50;
 const MAX_PLAYERS = 8;
+const MAX_ACES = 3;
+const SPEED_FACES = [1, 2, 3, 'J', 'J', 'B']; // Dado Matto: numeri, 2 Jolly, 1 Navetta
+const PRESETS = {
+  classic: { freeParking: false, auctions: true, speedDie: false, aces: false, events: false, cheat: false },
+  ultra: { freeParking: true, auctions: true, speedDie: true, aces: true, events: true, cheat: false },
+};
+const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', ...PRESETS.ultra };
 
 function shuffle(arr, rng) {
   const a = arr.slice();
@@ -41,7 +48,7 @@ class Game {
 
   init() {
     this.status = 'lobby'; // lobby | playing | ended
-    this.settings = { startCash: 1500, freeParking: false, showCash: false, auctions: true };
+    this.settings = { ...DEFAULT_SETTINGS };
     this.players = [];
     this.props = {};
     BOARD.forEach((sq, i) => { if (isOwnable(sq)) this.props[i] = { owner: null, houses: 0, mortgaged: false }; });
@@ -50,7 +57,17 @@ class Game {
     this.phase = 'lobby'; // lobby | roll | buy | auction | action | debt | ended
     this.doubles = 0;
     this.canRollAgain = false;
-    this.dice = { d1: 0, d2: 0, seq: 0 };
+    this.dice = { d1: 0, d2: 0, d3: 0, seq: 0 };
+    this.choice = null;      // scelta in sospeso: navetta o tris
+    this.event = null;       // evento di città del giro
+    this.eventSeq = 0;
+    this.round = 0;
+    this.roundTurns = 0;
+    this.cheat = null;       // imbroglio in corso nel turno
+    this.cheatDone = false;
+    this.accused = [];
+    this.fx = [];
+    this.fxSeq = 0;
     this.auction = null;
     this.debts = [];
     this.cont = null;
@@ -79,6 +96,13 @@ class Game {
   static fromJSON(obj, rng) {
     const g = new Game(rng);
     Object.assign(g, obj);
+    g.settings = { ...DEFAULT_SETTINGS, ...(obj.settings || {}) };
+    for (const p of g.players) {
+      if (!p.aces) p.aces = [];
+      if (p.skip === undefined) p.skip = 0;
+      if (p.shield === undefined) p.shield = false;
+      if (p.x2 === undefined) p.x2 = false;
+    }
     return g;
   }
 
@@ -91,6 +115,11 @@ class Game {
   addLog(kind, text) {
     this.log.push({ id: ++this.logSeq, kind, text });
     if (this.log.length > 80) this.log.shift();
+  }
+  nm(i) { return DATA.nameOf(this.settings.theme, i); }
+  priceOf(i) {
+    const base = BOARD[i].price;
+    return this.event && this.event.key === 'saldi' ? Math.round((base * 0.8) / 10) * 10 : base;
   }
   owned(pid) { return Object.keys(this.props).map(Number).filter((i) => this.props[i].owner === pid); }
   ownsGroup(pid, group) { return GROUPS[group].every((i) => this.props[i].owner === pid); }
@@ -124,6 +153,7 @@ class Game {
       token: crypto.randomBytes(12).toString('hex'),
       name, emoji, color, cash: 0, pos: 0,
       inJail: false, jailTurns: 0, jailCards: [], bankrupt: false,
+      aces: [], shield: false, x2: false, skip: 0,
     };
     this.players.push(p);
     if (!this.hostId) this.hostId = p.id;
@@ -144,18 +174,28 @@ class Game {
       if (![1000, 1500, 2000, 3000].includes(v)) fail('Importo non valido.');
       this.settings.startCash = v;
     }
-    for (const k of ['freeParking', 'showCash', 'auctions']) if (s[k] !== undefined) this.settings[k] = !!s[k];
+    if (s.preset !== undefined) {
+      if (!PRESETS[s.preset]) fail('Preset non valido.');
+      Object.assign(this.settings, PRESETS[s.preset]);
+    }
+    if (s.theme !== undefined) {
+      if (!THEMES[s.theme]) fail('Tema non valido.');
+      this.settings.theme = s.theme;
+    }
+    for (const k of ['freeParking', 'showCash', 'auctions', 'speedDie', 'aces', 'events', 'cheat']) if (s[k] !== undefined) this.settings[k] = !!s[k];
+    if (this.settings.cheat) this.settings.showCash = false; // con i furbetti i soldi restano segreti
   }
 
   start() {
     if (this.status !== 'lobby') fail('Partita già avviata.');
     if (this.players.length < 2) fail('Servono almeno 2 giocatori.');
     this.players = shuffle(this.players, this.rng);
-    for (const p of this.players) { p.cash = this.settings.startCash; p.pos = 0; }
+    for (const p of this.players) { p.cash = this.settings.startCash; p.pos = 0; p.aces = []; p.shield = false; p.x2 = false; p.skip = 0; }
+    if (this.settings.aces) for (const p of this.players) this.giveAce(p, true);
     this.status = 'playing';
     this.turnIdx = 0;
     this.phase = 'roll';
-    this.addLog('start', `Si comincia! Per primo gioca ${this.cur.emoji} ${this.cur.name}`);
+    this.addLog('start', `Si comincia! Per prima gioca ${this.cur.emoji} ${this.cur.name}`);
   }
 
   // ---------- turni ----------
@@ -168,10 +208,14 @@ class Game {
   roll(p) {
     this.needTurn(p, 'roll');
     const d1 = this.die(), d2 = this.die();
-    const total = d1 + d2, dbl = d1 === d2;
-    this.dice = { d1, d2, seq: this.dice.seq + 1 };
+    const useSpeed = this.settings.speedDie && !p.inJail;
+    const d3 = useSpeed ? SPEED_FACES[Math.floor(this.rng() * 6)] : 0;
+    const num3 = typeof d3 === 'number' ? d3 : 0;
+    const total = d1 + d2 + num3, dbl = d1 === d2;
+    this.dice = { d1, d2, d3, seq: this.dice.seq + 1 };
     this.card = null;
-    this.addLog('dice', `${p.emoji} ${p.name} tira ${d1} + ${d2}${dbl ? ' (doppio!)' : ''}`);
+    const extra = d3 === 'J' ? ' + 🃏 Jolly' : d3 === 'B' ? ' + 🚌 Navetta' : num3 ? ` + ${num3}` : '';
+    this.addLog('dice', `${p.emoji} ${p.name} tira ${d1} + ${d2}${extra}${dbl ? ' (doppio!)' : ''}`);
     if (p.inJail) {
       if (dbl) {
         this.releaseFromJail(p);
@@ -207,7 +251,48 @@ class Game {
       this.doubles = 0;
       this.canRollAgain = false;
     }
+    if (dbl && num3 === d1) {
+      this.choice = { kind: 'tris', pid: p.id, d1, d2 };
+      this.phase = 'choose';
+      this.addLog('dice', `✨ TRIS! ${p.name} può andare dove vuole`);
+      return;
+    }
+    if (d3 === 'B') {
+      this.choice = { kind: 'bus', pid: p.id, d1, d2 };
+      this.phase = 'choose';
+      this.addLog('dice', `🚌 ${p.name} sale sulla navetta: sceglie quanto muoversi`);
+      return;
+    }
+    if (d3 === 'J') this.cont = { type: 'jolly' };
     this.movePlayer(p, total);
+  }
+
+  busPick(p, pick) {
+    this.needTurn(p, 'choose');
+    const c = this.choice;
+    if (!c || c.kind !== 'bus') fail('Nessuna scelta da fare.');
+    const steps = pick === 'd1' ? c.d1 : pick === 'd2' ? c.d2 : pick === 'sum' ? c.d1 + c.d2 : 0;
+    if (!steps) fail('Scelta non valida.');
+    this.choice = null;
+    this.addLog('dice', `${p.name} sceglie di muoversi di ${steps}`);
+    this.movePlayer(p, steps);
+  }
+
+  warpTo(p, idx) {
+    this.needTurn(p, 'choose');
+    const c = this.choice;
+    if (!c || c.kind !== 'tris') fail('Nessuna scelta da fare.');
+    if (!Number.isInteger(idx) || idx < 0 || idx > 39) fail('Casella non valida.');
+    if (idx === p.pos) fail('Sei già lì.');
+    this.choice = null;
+    this.teleport(p, idx);
+  }
+
+  teleport(p, idx) {
+    if (idx < p.pos) this.passGo(p);
+    p.pos = idx;
+    this.addLog('move', `${p.emoji} ${p.name} vola a ${this.nm(idx)}`);
+    this.land(p, {});
   }
 
   releaseFromJail(p) { p.inJail = false; p.jailTurns = 0; }
@@ -230,17 +315,155 @@ class Game {
   }
 
   passGo(p) {
-    p.cash += GO_BONUS;
-    this.addLog('go', `${p.name} passa dalla Partenza e ritira ${eur(GO_BONUS)}`);
+    const gold = this.event && this.event.key === 'bonusGo';
+    const amount = GO_BONUS * (gold ? 2 : 1);
+    p.cash += amount;
+    this.addLog('go', `${p.name} passa dalla Partenza e ritira ${eur(amount)}${gold ? ' (Partenza d\'oro!)' : ''}`);
+    if (this.settings.aces && this.rng() < 0.6) this.giveAce(p);
+  }
+
+  // ---------- carte Asso nella manica ----------
+  giveAce(p, quiet) {
+    if (p.aces.length >= MAX_ACES) { if (!quiet) this.addLog('ace', `${p.name} ha già 3 assi: questo va perso`); return; }
+    const keys = Object.keys(ACES);
+    const key = keys[Math.floor(this.rng() * keys.length)];
+    p.aces.push(key);
+    if (!quiet) this.addLog('ace', `🃏 ${p.name} guadagna un Asso nella manica`);
+  }
+
+  // true se l'attacco passa, false se lo scudo lo blocca
+  attackOk(victim) {
+    if (victim.shield) {
+      victim.shield = false;
+      this.addLog('ace', `🛡️ Lo scudo di ${victim.name} blocca tutto!`);
+      return false;
+    }
+    return true;
+  }
+
+  takeCash(from, to, amount) {
+    const n = Math.max(0, Math.min(amount, from.cash));
+    from.cash -= n;
+    if (to) to.cash += n;
+    return n;
+  }
+
+  playAce(p, a) {
+    this.needTurn(p);
+    if (this.phase !== 'roll' && this.phase !== 'action') fail('Non puoi giocare un asso adesso.');
+    const key = a.ace;
+    if (!ACES[key] || !p.aces.includes(key)) fail('Non hai questo asso.');
+    const other = () => {
+      const q = this.player(a.target);
+      if (!q || q.bankrupt || q.id === p.id) fail('Scegli un\'altra giocatrice.');
+      return q;
+    };
+    const use = () => { p.aces.splice(p.aces.indexOf(key), 1); };
+    switch (key) {
+      case 'shield':
+        if (p.shield) fail('Hai già uno scudo.');
+        use(); p.shield = true;
+        this.addLog('ace', `🛡️ ${p.name} alza lo scudo`);
+        break;
+      case 'x2':
+        if (p.x2) fail('Hai già il doppio affitto attivo.');
+        use(); p.x2 = true;
+        this.addLog('ace', `✖️2 ${p.name} prepara il doppio affitto`);
+        break;
+      case 'steal': {
+        const q = other();
+        if (q.cash <= 0) fail('Non ha soldi da rubare.');
+        use();
+        this.addLog('ace', `🥷 ${p.name} tenta un furto ai danni di ${q.name}`);
+        if (this.attackOk(q)) {
+          const n = this.takeCash(q, p, 100);
+          this.addLog('ace', `🥷 ${p.name} ruba ${eur(n)} a ${q.name}`);
+        }
+        break;
+      }
+      case 'skip': {
+        const q = other();
+        if (q.skip > 0) fail('Salta già un turno.');
+        use();
+        if (this.attackOk(q)) {
+          q.skip = 1;
+          this.addLog('ace', `⏭️ ${q.name} salterà il prossimo turno`);
+        }
+        break;
+      }
+      case 'party': {
+        use();
+        let tot = 0;
+        for (const q of this.alive()) if (q.id !== p.id) tot += this.takeCash(q, p, 30);
+        this.addLog('ace', `🎉 ${p.name} dà una festa a sorpresa e incassa ${eur(tot)}`);
+        break;
+      }
+      case 'swap': {
+        if (this.phase !== 'roll') fail('Il cambio posto si gioca al posto del tiro.');
+        if (p.inJail) fail('Sei in prigione.');
+        const q = other();
+        if (q.inJail || q.pos === p.pos) fail('Non puoi scambiare con lei adesso.');
+        use();
+        if (!this.attackOk(q)) { break; }
+        [p.pos, q.pos] = [q.pos, p.pos];
+        this.addLog('ace', `🔀 ${p.name} e ${q.name} si scambiano il posto`);
+        this.canRollAgain = false;
+        this.land(p, {});
+        break;
+      }
+      case 'warp': {
+        if (this.phase !== 'roll') fail('Il teletrasporto si gioca al posto del tiro.');
+        if (p.inJail) fail('Sei in prigione.');
+        const idx = Number(a.idx);
+        if (!Number.isInteger(idx) || idx < 0 || idx > 39 || idx === p.pos) fail('Casella non valida.');
+        use();
+        this.canRollAgain = false;
+        this.teleport(p, idx);
+        break;
+      }
+      default: fail('Asso sconosciuto.');
+    }
+  }
+
+  // ---------- furbetti ----------
+  doCheat(p) {
+    if (!this.settings.cheat) fail('I furbetti non sono attivi.');
+    this.needTurn(p);
+    if (this.phase !== 'roll' && this.phase !== 'action') fail('Non adesso.');
+    if (this.cheatDone) fail('Hai già fatto il furbo in questo turno.');
+    this.cheatDone = true;
+    this.cheat = { pid: p.id };
+    p.cash += 100; // di nascosto, niente nel registro
+  }
+
+  accuse(p) {
+    if (!this.settings.cheat) fail('I furbetti non sono attivi.');
+    if (this.status !== 'playing') fail('La partita non è in corso.');
+    const c = this.cur;
+    if (p.id === c.id) fail('Non puoi accusare te stessa.');
+    if (this.accused.includes(p.id)) fail('Hai già fatto un\'accusa in questo turno.');
+    this.accused.push(p.id);
+    if (this.cheat && this.cheat.pid === c.id) {
+      const n = this.takeCash(c, p, 200);
+      this.cheat = null;
+      this.addLog('cheat', `🕵️ ${p.name} ha scoperto ${c.name} che barava! Paga ${eur(n)}`);
+    } else {
+      const n = this.takeCash(p, c, 50);
+      this.addLog('cheat', `🕵️ ${p.name} accusa ${c.name} ma era innocente: paga ${eur(n)}`);
+    }
   }
 
   rentFor(idx, opts) {
     const sq = BOARD[idx], pr = this.props[idx];
+    const ev = this.event ? this.event.key : null;
+    if (ev === 'truce') return 0;
     if (sq.type === 'street') {
-      if (pr.houses > 0) return sq.rent[pr.houses];
-      return sq.rent[0] * (this.ownsGroup(pr.owner, sq.group) ? 2 : 1);
+      let r = pr.houses > 0 ? sq.rent[pr.houses] : sq.rent[0] * (this.ownsGroup(pr.owner, sq.group) ? 2 : 1);
+      if (ev === 'festa' && this.event.group === sq.group) r *= 2;
+      return r;
     }
     if (sq.type === 'station') {
+      if (ev === 'strike') return 0;
       const n = STATIONS.filter((i) => this.props[i].owner === pr.owner).length;
       return 25 * Math.pow(2, n - 1) * (opts.rentMult || 1);
     }
@@ -257,25 +480,29 @@ class Game {
         const pr = this.props[p.pos];
         if (!pr.owner) {
           this.phase = 'buy';
-          this.addLog('land', `${p.emoji} ${p.name} arriva a ${sq.name} (libera, ${eur(sq.price)})`);
+          this.addLog('land', `${p.emoji} ${p.name} arriva a ${this.nm(p.pos)} (libera, ${eur(this.priceOf(p.pos))})`);
           return;
         }
-        if (pr.owner === p.id) { this.addLog('land', `${p.name} è a casa sua: ${sq.name}`); break; }
-        if (pr.mortgaged) { this.addLog('land', `${sq.name} è ipotecata: nessun affitto`); break; }
+        if (pr.owner === p.id) { this.addLog('land', `${p.name} è a casa sua: ${this.nm(p.pos)}`); break; }
+        if (pr.mortgaged) { this.addLog('land', `${this.nm(p.pos)} è ipotecata: nessun affitto`); break; }
         if (sq.type === 'util' && opts.utilTen) {
           const d1 = this.die(), d2 = this.die();
-          this.dice = { d1, d2, seq: this.dice.seq + 1 };
+          this.dice = { d1, d2, d3: 0, seq: this.dice.seq + 1 };
           this.addLog('dice', `${p.name} ritira i dadi per la società: ${d1} + ${d2}`);
         }
-        const amount = this.rentFor(p.pos, opts);
+        let amount = this.rentFor(p.pos, opts);
         const owner = this.player(pr.owner);
-        this.addLog('rent', `${p.emoji} ${p.name} paga ${eur(amount)} di affitto a ${owner.name} (${sq.name})`);
-        this.debts.push({ pid: p.id, amount, creditor: pr.owner, reason: 'affitto ' + sq.name, kind: 'rent' });
+        if (amount === 0) { this.addLog('land', `${p.name} è a ${this.nm(p.pos)}: oggi niente affitto (${this.event.title})`); break; }
+        if (owner.x2) { amount *= 2; owner.x2 = false; this.addLog('ace', `✖️2 Doppio affitto per ${owner.name}!`); }
+        if (p.shield) { p.shield = false; this.addLog('ace', `🛡️ ${p.name} para l'affitto di ${this.nm(p.pos)} con lo scudo!`); break; }
+        this.addLog('rent', `${p.emoji} ${p.name} paga ${eur(amount)} di affitto a ${owner.name} (${this.nm(p.pos)})`);
+        this.debts.push({ pid: p.id, amount, creditor: pr.owner, reason: 'affitto ' + this.nm(p.pos), kind: 'rent' });
         break;
       }
       case 'tax':
-        this.addLog('tax', `${p.name} paga ${eur(sq.amount)}: ${sq.name}`);
-        this.debts.push({ pid: p.id, amount: sq.amount, creditor: this.settings.freeParking ? 'pot' : 'bank', reason: sq.name, kind: 'tax' });
+        if (p.shield) { p.shield = false; this.addLog('ace', `🛡️ ${p.name} schiva la tassa con lo scudo!`); break; }
+        this.addLog('tax', `${p.name} paga ${eur(sq.amount)}: ${this.nm(p.pos)}`);
+        this.debts.push({ pid: p.id, amount: sq.amount, creditor: this.settings.freeParking ? 'pot' : 'bank', reason: this.nm(p.pos), kind: 'tax' });
         break;
       case 'gotojail':
         this.sendToJail(p);
@@ -302,9 +529,10 @@ class Game {
     const card = CARDS[deckName][id];
     if (card.fx === 'jailCard') p.jailCards.push({ deck: deckName, id });
     else deck.push(id);
+    const text = card.text.replace(/\{(\d+)\}/g, (m, n) => this.nm(Number(n)));
     this.cardSeq++;
-    this.card = { seq: this.cardSeq, deck: deckName, text: card.text, pid: p.id };
-    this.addLog('card', `${p.emoji} ${p.name} pesca (${deckName === 'fortuna' ? 'Fortuna' : 'Sorpresa'}): ${card.text}`);
+    this.card = { seq: this.cardSeq, deck: deckName, text, pid: p.id };
+    this.addLog('card', `${p.emoji} ${p.name} pesca (${deckName === 'fortuna' ? 'Fortuna' : 'Sorpresa'}): ${text}`);
     const pot = this.settings.freeParking ? 'pot' : 'bank';
     switch (card.fx) {
       case 'collect':
@@ -336,6 +564,36 @@ class Game {
         break;
       case 'jailCard':
         break;
+      case 'heist': {
+        const vs = this.alive().filter((q) => q.id !== p.id && q.cash > 0);
+        if (!vs.length) break;
+        const q = vs[Math.floor(this.rng() * vs.length)];
+        if (this.attackOk(q)) this.addLog('ace', `🥷 ${p.name} ruba ${eur(this.takeCash(q, p, 100))} a ${q.name}`);
+        break;
+      }
+      case 'robinHood': {
+        const live = this.alive();
+        if (live.length < 2) break;
+        const sorted = live.slice().sort((x, y) => y.cash - x.cash);
+        const rich = sorted[0], poor = sorted[sorted.length - 1];
+        if (rich.id === poor.id || rich.cash === poor.cash) { this.addLog('card', 'Tutte hanno gli stessi soldi: Robin Hood torna nel bosco'); break; }
+        if (this.attackOk(rich)) this.addLog('card', `🏹 ${eur(this.takeCash(rich, poor, 100))} da ${rich.name} a ${poor.name}`);
+        break;
+      }
+      case 'giveAce':
+        if (this.settings.aces) this.giveAce(p);
+        else { p.cash += 50; this.addLog('card', `${p.name} incassa ${eur(50)} al posto dell'asso`); }
+        break;
+      case 'swapRandom': {
+        const vs = this.alive().filter((q) => q.id !== p.id && !q.inJail && q.pos !== p.pos);
+        if (!vs.length || p.inJail) break;
+        const q = vs[Math.floor(this.rng() * vs.length)];
+        if (!this.attackOk(q)) break;
+        [p.pos, q.pos] = [q.pos, p.pos];
+        this.addLog('move', `🔀 ${p.name} e ${q.name} si scambiano il posto`);
+        this.land(p, {});
+        return;
+      }
       case 'repairs': {
         let houses = 0, hotels = 0;
         for (const i of this.owned(p.id)) {
@@ -401,6 +659,20 @@ class Game {
         return;
       }
       if (c.type === 'endTurn') { this.nextTurn(); return; }
+      if (c.type === 'jolly') {
+        const p = this.cur;
+        if (!p.inJail && !p.bankrupt) {
+          for (let k = 1; k < 40; k++) {
+            const idx = (p.pos + k) % 40;
+            if (isOwnable(BOARD[idx]) && !this.props[idx].owner) {
+              this.addLog('move', `🃏 Jolly! ${p.name} corre fino a ${this.nm(idx)}`);
+              this.movePlayer(p, k);
+              return;
+            }
+          }
+          this.addLog('move', '🃏 Jolly: non ci sono più proprietà libere');
+        }
+      }
     }
     this.phase = 'action';
   }
@@ -417,21 +689,50 @@ class Game {
     this.doubles = 0;
     this.canRollAgain = false;
     this.cont = null;
+    this.choice = null;
+    this.cheat = null;
+    this.cheatDone = false;
+    this.accused = [];
     let i = this.turnIdx;
-    do { i = (i + 1) % this.players.length; } while (this.players[i].bankrupt);
+    for (let guard = 0; guard < 100; guard++) {
+      do { i = (i + 1) % this.players.length; } while (this.players[i].bankrupt);
+      const q = this.players[i];
+      if (q.skip > 0) { q.skip--; this.addLog('ace', `⏭️ ${q.name} salta il turno`); continue; }
+      break;
+    }
     this.turnIdx = i;
     this.phase = 'roll';
     this.turnCount++;
+    this.roundTurns++;
+    if (this.roundTurns >= this.alive().length) { this.roundTurns = 0; this.newRound(); }
+  }
+
+  newRound() {
+    this.round++;
+    if (!this.settings.events) return;
+    const keys = Object.keys(EVENTS);
+    let key = keys[Math.floor(this.rng() * keys.length)];
+    if (this.event && key === this.event.key) key = keys[(keys.indexOf(key) + 1) % keys.length];
+    const ev = { key, ...EVENTS[key] };
+    if (key === 'festa') {
+      const gs = Object.keys(GROUPS);
+      ev.group = gs[Math.floor(this.rng() * gs.length)];
+      ev.text = ev.text.replace('{group}', GROUP_NAMES[ev.group].toLowerCase());
+    }
+    ev.seq = ++this.eventSeq;
+    this.event = ev;
+    this.addLog('event', `${ev.icon} ${ev.title}: ${ev.text}`);
+    if (key === 'bonus') for (const q of this.alive()) q.cash += 50;
   }
 
   // ---------- acquisto e asta ----------
   buy(p) {
     this.needTurn(p, 'buy');
-    const sq = BOARD[p.pos];
-    if (p.cash < sq.price) fail('Non hai abbastanza soldi.');
-    p.cash -= sq.price;
+    const price = this.priceOf(p.pos);
+    if (p.cash < price) fail('Non hai abbastanza soldi.');
+    p.cash -= price;
     this.props[p.pos].owner = p.id;
-    this.addLog('buy', `${p.emoji} ${p.name} compra ${sq.name} per ${eur(sq.price)}`);
+    this.addLog('buy', `${p.emoji} ${p.name} compra ${this.nm(p.pos)} per ${eur(price)}`);
     this.proceed();
   }
 
@@ -439,13 +740,13 @@ class Game {
     this.needTurn(p, 'buy');
     const sq = BOARD[p.pos];
     if (this.settings.auctions) this.startAuction(p.pos);
-    else { this.addLog('buy', `${p.name} non compra ${sq.name}`); this.proceed(); }
+    else { this.addLog('buy', `${p.name} non compra ${this.nm(p.pos)}`); this.proceed(); }
   }
 
   startAuction(idx) {
     this.phase = 'auction';
     this.auction = { idx, high: 0, bidder: null, active: this.alive().map((q) => q.id) };
-    this.addLog('auction', `Asta per ${BOARD[idx].name}!`);
+    this.addLog('auction', `Asta per ${this.nm(idx)}!`);
   }
 
   bid(p, amount) {
@@ -478,7 +779,7 @@ class Game {
     const over = force || (a.bidder ? others.length === 0 : a.active.length === 0);
     if (!over) return;
     this.auction = null;
-    const sq = BOARD[a.idx];
+    const sq = { name: this.nm(a.idx) };
     const w = a.bidder ? this.player(a.bidder) : null;
     if (w && !w.bankrupt && w.cash >= a.high) {
       w.cash -= a.high;
@@ -531,28 +832,28 @@ class Game {
     const sq = BOARD[idx], pr = this.props[idx];
     p.cash -= sq.houseCost;
     pr.houses++;
-    this.addLog('build', `${p.name} costruisce ${pr.houses === 5 ? 'un albergo' : 'una casa'} a ${sq.name}`);
+    this.addLog('build', `${p.name} costruisce ${pr.houses === 5 ? 'un albergo' : 'una casa'} a ${this.nm(idx)}`);
   }
   sell(p, idx) {
     const why = this.whyNotSell(p, idx); if (why) fail(why);
     const sq = BOARD[idx], pr = this.props[idx];
     p.cash += sq.houseCost / 2;
     pr.houses--;
-    this.addLog('build', `${p.name} vende ${pr.houses === 4 ? 'l\'albergo' : 'una casa'} a ${sq.name}`);
+    this.addLog('build', `${p.name} vende ${pr.houses === 4 ? 'l\'albergo' : 'una casa'} a ${this.nm(idx)}`);
   }
   mortgage(p, idx) {
     const why = this.whyNotMortgage(p, idx); if (why) fail(why);
     const sq = BOARD[idx];
     this.props[idx].mortgaged = true;
     p.cash += sq.price / 2;
-    this.addLog('mortgage', `${p.name} ipoteca ${sq.name} (+${eur(sq.price / 2)})`);
+    this.addLog('mortgage', `${p.name} ipoteca ${this.nm(idx)} (+${eur(sq.price / 2)})`);
   }
   unmortgage(p, idx) {
     const why = this.whyNotUnmortgage(p, idx); if (why) fail(why);
     const sq = BOARD[idx];
     this.props[idx].mortgaged = false;
     p.cash -= Math.ceil(sq.price * 0.55);
-    this.addLog('mortgage', `${p.name} riscatta l'ipoteca di ${sq.name}`);
+    this.addLog('mortgage', `${p.name} riscatta l'ipoteca di ${this.nm(idx)}`);
   }
 
   // ---------- scambi ----------
@@ -566,10 +867,10 @@ class Game {
   checkTradeSide(p, side, label) {
     for (const i of side.props) {
       const pr = this.props[i];
-      if (pr.owner !== p.id) fail(`${BOARD[i].name} non è di ${label}.`);
+      if (pr.owner !== p.id) fail(`${this.nm(i)} non è di ${label}.`);
       const sq = BOARD[i];
       if (sq.type === 'street' && GROUPS[sq.group].some((j) => this.props[j].houses > 0))
-        fail(`Per scambiare ${sq.name} vendi prima gli edifici del suo colore.`);
+        fail(`Per scambiare ${this.nm(i)} vendi prima gli edifici del suo colore.`);
     }
     if (side.jail > p.jailCards.length) fail(`${label} non ha tutte quelle carte "esci di prigione".`);
   }
@@ -651,6 +952,7 @@ class Game {
     }
     for (const jc of p.jailCards) this.decks[jc.deck].push(jc.id);
     p.jailCards = [];
+    p.aces = []; p.shield = false; p.x2 = false; p.skip = 0;
     p.inJail = false;
     this.debts = this.debts
       .filter((d) => d.pid !== p.id)
@@ -714,6 +1016,27 @@ class Game {
 
   // ---------- punto di ingresso delle azioni dei giocatori ----------
   act(pid, a) {
+    const before = new Map(this.players.map((q) => [q.id, q.cash]));
+    const seq0 = this.logSeq;
+    const r = this._act(pid, a);
+    this.trackFx(before, seq0);
+    return r;
+  }
+
+  trackFx(before, seq0) {
+    const kinds = this.log.filter((l) => l.id > seq0).map((l) => l.kind);
+    const pri = ['rent', 'tax', 'go', 'buy', 'card', 'ace', 'cheat', 'event', 'pay', 'bid'];
+    const kind = pri.find((k) => kinds.includes(k)) || kinds[0] || '';
+    for (const q of this.players) {
+      const d = q.cash - (before.get(q.id) || 0);
+      if (d !== 0 && (before.get(q.id) || 0) > 0) {
+        this.fx.push({ id: ++this.fxSeq, pid: q.id, d, k: kind });
+      }
+    }
+    if (this.fx.length > 24) this.fx = this.fx.slice(-24);
+  }
+
+  _act(pid, a) {
     try {
       const p = this.player(pid);
       if (!p) fail('Giocatore non trovato.');
@@ -745,6 +1068,11 @@ class Game {
         case 'accept': this.acceptTrade(p, Number(a.id)); break;
         case 'reject': this.rejectTrade(p, Number(a.id)); break;
         case 'bankrupt': this.declareBankrupt(p); break;
+        case 'busPick': this.busPick(p, a.pick); break;
+        case 'warpTo': this.warpTo(p, Number(a.idx)); break;
+        case 'ace': this.playAce(p, a); break;
+        case 'cheat': this.doCheat(p); break;
+        case 'accuse': this.accuse(p); break;
         default: fail('Azione sconosciuta.');
       }
       // se qualcuno ha raccolto abbastanza soldi, salda subito i debiti
@@ -758,6 +1086,14 @@ class Game {
 
   // azioni del tabellone (iPad), senza identità di giocatore
   admin(a) {
+    const before = new Map(this.players.map((q) => [q.id, q.cash]));
+    const seq0 = this.logSeq;
+    const r = this._admin(a);
+    this.trackFx(before, seq0);
+    return r;
+  }
+
+  _admin(a) {
     try {
       switch (a.type) {
         case 'start': this.start(); break;
@@ -782,13 +1118,14 @@ class Game {
   view(pid, connected) {
     const me = this.player(pid) || null;
     const s = this.settings;
-    const showCash = (p) => s.showCash || this.status === 'ended' || (me && me.id === p.id);
+    const showCash = (p) => (s.showCash && !s.cheat) || this.status === 'ended' || (me && me.id === p.id);
     const players = this.players.map((p) => ({
       id: p.id, name: p.name, emoji: p.emoji, color: p.color, pos: p.pos,
       inJail: p.inJail, jailCards: p.jailCards.length, bankrupt: p.bankrupt,
       connected: connected ? connected.has(p.id) : true,
       cash: showCash(p) ? p.cash : null,
       worth: this.status === 'ended' ? this.netWorth(p) : null,
+      shield: p.shield, x2: p.x2, skip: p.skip, aceCount: p.aces.length,
     }));
     let perms = null;
     if (me && this.status === 'playing' && !me.bankrupt) {
@@ -810,7 +1147,7 @@ class Game {
       dice: this.dice, players, props: this.props,
       auction: this.auction,
       debts: this.debts.map((d) => ({ pid: d.pid, amount: d.amount, creditor: d.creditor, reason: d.reason })),
-      buy: this.phase === 'buy' && cur ? { idx: cur.pos, price: BOARD[cur.pos].price } : null,
+      buy: this.phase === 'buy' && cur ? { idx: cur.pos, price: this.priceOf(cur.pos) } : null,
       card: this.card, log: this.log.slice(-30), pot: s.freeParking ? this.pot : null,
       housesLeft: this.housesLeft(), hotelsLeft: this.hotelsLeft(),
       winner: this.winner, ranking: this.ranking,
@@ -819,8 +1156,17 @@ class Game {
       trades: me ? this.trades.filter((t) => t.from === me.id || t.to === me.id) : [],
       tradeCount: this.trades.length,
       turnCount: this.turnCount,
+      choice: this.choice,
+      event: this.event, round: this.round,
+      aces: me ? me.aces : [],
+      fx: this.fx.slice(-12),
+      cheat: s.cheat && this.status === 'playing' && me ? {
+        canCheat: cur && cur.id === me.id && !this.cheatDone && (this.phase === 'roll' || this.phase === 'action'),
+        pending: !!(this.cheat && this.cheat.pid === me.id),
+        canAccuse: !!cur && cur.id !== me.id && !me.bankrupt && !this.accused.includes(me.id),
+      } : null,
     };
   }
 }
 
-module.exports = { Game, GameError, BOARD, GROUPS, STATIONS, UTILS, TOKENS, MAX_PLAYERS };
+module.exports = { Game, GameError, BOARD, GROUPS, STATIONS, UTILS, TOKENS, MAX_PLAYERS, PRESETS, ACES };

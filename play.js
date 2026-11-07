@@ -8,6 +8,7 @@
 
   const GROUPS = {};
   BOARD.forEach((sq, i) => { if (sq.type === 'street') (GROUPS[sq.group] = GROUPS[sq.group] || []).push(i); });
+  const nm = (i) => D.nameOf(S ? S.settings.theme : 'italia', i);
   const STATIONS = BOARD.map((s, i) => (s.type === 'station' ? i : -1)).filter((i) => i >= 0);
 
   let token = localStorage.getItem('dv_token');
@@ -17,6 +18,8 @@
   let selEmoji = null, typedName = '';
   let joinBuilt = false;
   let delta = null;            // { v, until }
+  let pick = null;             // { kind:'ace', key } mentre si sceglie il bersaglio
+  let lastLogSeen = null;
   let lastCash = null, lastTurnMe = false, lastTradeIds = '', lastDebt = false;
 
   // ---------- rete ----------
@@ -79,12 +82,15 @@
     return '4× / 10× dadi';
   }
   const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
-  const dieHTML = (n) => `<div class="dot-die">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => `<i class="${PIPS[n].includes(i) ? 'on' : ''}"></i>`).join('')}</div>`;
+  const dieHTML = (n) => `<div class="dot-die land">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => `<i class="${PIPS[n].includes(i) ? 'on' : ''}"></i>`).join('')}</div>`;
+  const speedHTML = (f) => `<div class="dot-die speed land"><b>${f === 'J' ? '🃏' : f === 'B' ? '🚌' : f}</b></div>`;
+  const diceHTML = (d) => (d && d.d1 ? `<div class="dice">${dieHTML(d.d1)}${dieHTML(d.d2)}${d.d3 ? speedHTML(d.d3) : ''}</div>` : '');
+  const eventHTML = () => (S.event && S.status === 'playing' ? `<div class="evbox">${S.event.icon} <b>${esc(S.event.title)}</b> · ${esc(S.event.text)}</div>` : '');
 
   function sideText(side, giverId) {
     const parts = [];
     if (side.cash) parts.push(eur(side.cash));
-    side.props.forEach((i) => parts.push(BOARD[i].name + (S.props[i] && S.props[i].mortgaged ? ' (ipotecata)' : '')));
+    side.props.forEach((i) => parts.push(nm(i) + (S.props[i] && S.props[i].mortgaged ? ' (ipotecata)' : '')));
     if (side.jail) parts.push(`${side.jail} carta${side.jail > 1 ? 'e' : ''} "esci di prigione"`);
     return parts.length ? parts.join(', ') : 'niente';
   }
@@ -119,7 +125,20 @@
       lastCash = m.cash;
     }
     notifications();
+    logToasts();
     render();
+  }
+  function logToasts() {
+    const last = S.log.length ? S.log[S.log.length - 1].id : 0;
+    if (lastLogSeen === null) { lastLogSeen = last; return; }
+    const fresh = S.log.filter((l) => l.id > lastLogSeen);
+    lastLogSeen = last;
+    const me0 = me();
+    for (const l of fresh) {
+      if (['event', 'ace', 'cheat'].includes(l.kind) || (l.kind === 'dice' && /TRIS|navetta/.test(l.text)) || (l.kind === 'move' && /Jolly|scambiano/.test(l.text))) {
+        toast(l.text); buzz(l.kind === 'cheat' && me0 && l.text.includes(me0.name) ? [200, 80, 200] : 40);
+      }
+    }
   }
 
   // ---------- schermata di ingresso ----------
@@ -156,7 +175,8 @@
     if (cur) bar = S.turn === S.you ? '<div class="turnbar me">⭐ Tocca a te!</div>' : `<div class="turnbar">Tocca a ${cur.emoji} ${esc(cur.name)}</div>`;
     const d = delta && Date.now() < delta.until ? `<span class="delta ${delta.v > 0 ? 'up' : 'down'}">${delta.v > 0 ? '+' : '−'}${Math.abs(delta.v)}</span>` : '';
     return `<header><div class="hrow"><div class="av" style="--c:${m.color}">${m.emoji}</div>
-      <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : BOARD[m.pos].name}</div></div>
+      <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : nm(m.pos)}</div></div>
+      <div class="hbadges">${m.shield ? '🛡️' : ''}${m.x2 ? '✖️2' : ''}${m.skip ? '⏭️' : ''}</div>
       <div class="hcash">${m.cash !== null ? eur(m.cash) : ''}${d}</div></div>${bar}</header>`;
   }
 
@@ -167,12 +187,46 @@
     if (sq.type === 'street') rows = `<div class="db"><span>Affitto</span><b>${eur(sq.rent[0])}</b></div><div class="db"><span>Con tutto il colore</span><b>${eur(sq.rent[0] * 2)}</b></div><div class="db"><span>Una casa</span><b>${eur(sq.rent[1])}</b></div><div class="db"><span>Albergo</span><b>${eur(sq.rent[5])}</b></div>`;
     else if (sq.type === 'station') rows = '<div class="db"><span>Affitto</span><b>€25 – €200</b></div>';
     else rows = '<div class="db"><span>Affitto</span><b>4× o 10× dadi</b></div>';
-    return `<div class="deed"><div class="dh" style="background:${col};color:${textOn(col)}">${esc(sq.name)}</div>
-      <div class="db"><span>Prezzo</span><b>${eur(sq.price)}</b></div>${rows}</div>`;
+    return `<div class="deed"><div class="dh" style="background:${col};color:${textOn(col)}">${esc(nm(idx))}</div>
+      <div class="db"><span>Prezzo</span><b>${eur(S.buy && S.buy.idx === idx ? S.buy.price : sq.price)}</b></div>${rows}</div>`;
   }
 
   function logHTML(n) {
     return `<div class="log">${S.log.slice(-n).map((l) => `<div>${esc(l.text)}</div>`).join('')}</div>`;
+  }
+
+  function acesHTML(m, usable) {
+    if (!S.settings.aces) return '';
+    const hand = S.aces || [];
+    if (!hand.length) return '<div class="card acehand"><h3>🃏 Assi nella manica</h3><p class="muted">Non ne hai. Passando dalla Partenza ne puoi guadagnare uno.</p></div>';
+    const cards = hand.map((k) => {
+      const A = D.ACES[k];
+      const off = !usable || ((k === 'swap' || k === 'warp') && S.phase !== 'roll') || (k === 'shield' && m.shield) || (k === 'x2' && m.x2) || ((k === 'swap' || k === 'warp') && m.inJail);
+      return `<button class="ace ${off ? 'off' : ''}" data-act="ace" data-k="${k}"><span class="ai">${A.icon}</span><b>${A.name}</b><small>${A.desc}</small></button>`;
+    }).join('');
+    return `<div class="card acehand"><h3>🃏 Assi nella manica</h3><div class="aces">${cards}</div>${usable ? '' : '<p class="muted">Si giocano nel tuo turno.</p>'}</div>`;
+  }
+  function cheatHTML(mine) {
+    const c = S.cheat;
+    if (!c) return '';
+    if (mine) {
+      if (c.pending) return '<p class="muted">🕵️ Hai barato… speriamo che nessuna se ne accorga!</p>';
+      if (c.canCheat) return '<button class="btn sm ghost" data-act="cheat" style="margin-top:10px">🕵️ Fai il furbo (+€100 di nascosto)</button>';
+      return '';
+    }
+    if (c.canAccuse) return '<button class="btn gold" data-act="accuse">🔎 Accusa di aver barato</button><p class="muted">Giusta: lei paga €200 a te. Sbagliata: paghi €50 tu.</p>';
+    return '';
+  }
+  function pickerHTML(m) {
+    const A = pick.kind === 'tris' ? { icon: '✨', name: 'Tris', target: 'square' } : D.ACES[pick.key];
+    let body = '';
+    if (A.target === 'player') {
+      const others = S.players.filter((p) => !p.bankrupt && p.id !== S.you);
+      body = `<div class="chips">${others.map((p) => `<button class="chip" data-act="acetarget" data-id="${p.id}">${p.emoji} ${esc(p.name)}${p.shield ? ' 🛡️' : ''}</button>`).join('')}</div>`;
+    } else {
+      body = `<div class="sqgrid">${BOARD.map((sq, i) => (i === m.pos ? '' : `<button class="chip sqb" data-act="${pick.kind === 'tris' ? 'warpTo' : 'acesq'}" data-i="${i}"><i style="background:${colorOf(i)}"></i>${esc(nm(i))}</button>`)).join('')}</div>`;
+    }
+    return `<div class="card"><h3>${A.icon} ${A.name}: ${A.target === 'player' ? 'scegli chi' : 'scegli dove andare'}</h3>${body}${pick.kind === 'tris' ? '' : '<button class="btn ghost" data-act="cancelPick">Annulla</button>'}</div>`;
   }
 
   function panelTurn(m) {
@@ -180,7 +234,10 @@
     const myTurn = S.turn === S.you;
     const cur = P(S.turn);
     const sqCur = BOARD[cur.pos];
-    let html = '';
+    let html = eventHTML();
+    if (myTurn && S.phase === 'choose' && S.choice && S.choice.kind === 'tris') pick = { kind: 'tris' };
+    if (pick && myTurn && ['roll', 'action', 'choose'].includes(S.phase)) return html + pickerHTML(m);
+    pick = null;
     const myDebts = S.debts.filter((d) => d.pid === S.you);
 
     if (myDebts.length) {
@@ -198,7 +255,7 @@
       const active = a.active.includes(S.you);
       const sq = BOARD[a.idx];
       const bidder = a.bidder ? P(a.bidder) : null;
-      html += `<div class="card"><h3>🔨 Asta: ${esc(sq.name)}</h3>${deedMini(a.idx)}
+      html += `<div class="card"><h3>🔨 Asta: ${esc(nm(a.idx))}</h3>${deedMini(a.idx)}
         <div class="bigtxt">${eur(a.high)}</div>
         <p class="muted" style="text-align:center">${bidder ? `${bidder.emoji} ${esc(bidder.name)} è in testa` : 'Nessuna offerta ancora'}</p>`;
       if (active) {
@@ -215,11 +272,13 @@
     }
 
     if (!myTurn) {
-      html += `<div class="card"><h3>Tocca a ${cur.emoji} ${esc(cur.name)}</h3>`;
-      if (S.phase === 'buy') html += `<p class="muted">Sta decidendo se comprare <b>${esc(sqCur.name)}</b> (${eur(sqCur.price)}).</p>`;
+      html += `<div class="card"><h3>Tocca a ${cur.emoji} ${esc(cur.name)}</h3>${diceHTML(S.dice)}`;
+      if (S.phase === 'choose') html += '<p class="muted">Sta scegliendo come muoversi.</p>';
+      else if (S.phase === 'buy') html += `<p class="muted">Sta decidendo se comprare <b>${esc(nm(cur.pos))}</b> (${eur(S.buy ? S.buy.price : sqCur.price)}).</p>`;
       else if (S.phase === 'roll') html += '<p class="muted">Sta per tirare i dadi.</p>';
       else html += '<p class="muted">Sta decidendo cosa fare.</p>';
-      html += '<p class="muted">Nel frattempo puoi sistemare le tue proprietà o proporre scambi.</p></div>';
+      html += `<p class="muted">Nel frattempo puoi sistemare le tue proprietà o proporre scambi.</p>${cheatHTML(false)}</div>`;
+      html += acesHTML(m, false);
       return html + logHTML(4);
     }
 
@@ -231,13 +290,20 @@
           <div class="row"><button class="btn ${m.cash >= 50 ? 'gold' : 'off'}" data-act="payJail">Paga €50</button>
           ${S.jailCardsMine ? '<button class="btn green" data-act="useJailCard">Usa la carta</button>' : ''}</div>`;
       } else if (S.doubles) html += '<h3>Doppio! 🎉</h3><p class="muted">Tira ancora.</p>';
-      html += `<button class="btn green huge" data-act="roll">🎲 ${m.inJail ? 'Tira (doppio = libera)' : 'Tira i dadi'}</button></div>`;
+      html += `<button class="btn green huge" data-act="roll">🎲 ${m.inJail ? 'Tira (doppio = libera)' : 'Tira i dadi'}</button>${cheatHTML(true)}</div>`;
+      html += acesHTML(m, true);
+      return html + logHTML(3);
+    }
+    if (S.phase === 'choose' && S.choice) {
+      const c = S.choice;
+      html += `<div class="card"><h3>🚌 Navetta!</h3>${diceHTML(S.dice)}<p class="muted">Di quanto vuoi muoverti?</p>
+        <div class="row"><button class="btn green" data-act="busPick" data-p="d1">${c.d1}</button><button class="btn green" data-act="busPick" data-p="d2">${c.d2}</button><button class="btn gold" data-act="busPick" data-p="sum">${c.d1 + c.d2}</button></div></div>`;
       return html + logHTML(3);
     }
     if (S.phase === 'buy') {
       const idx = S.buy.idx;
       const can = m.cash >= S.buy.price;
-      html += `<div class="card"><h3>Sei su ${esc(BOARD[idx].name)}</h3>${deedMini(idx)}
+      html += `<div class="card"><h3>Sei su ${esc(nm(idx))}</h3>${diceHTML(S.dice)}${deedMini(idx)}
         <button class="btn green ${can ? '' : 'off'}" data-act="buy">Compra per ${eur(S.buy.price)}</button>
         <button class="btn ghost" data-act="decline">${S.settings.auctions ? 'Non comprare (asta)' : 'Non comprare'}</button>
         ${can ? '' : '<p class="muted">Non hai abbastanza soldi: puoi ipotecare qualcosa nel tab Proprietà.</p>'}</div>`;
@@ -246,9 +312,10 @@
     if (S.phase === 'action') {
       const again = S.canRollAgain && !m.inJail;
       html += `<div class="card"><h3>${again ? 'Doppio! 🎉' : 'Il tuo turno'}</h3>
-        ${S.dice.d1 ? `<div class="dice">${dieHTML(S.dice.d1)}${dieHTML(S.dice.d2)}</div>` : ''}
+        ${diceHTML(S.dice)}
         <p class="muted">Prima di finire puoi costruire, ipotecare o fare scambi.</p>
-        <button class="btn ${again ? 'green' : 'gold'}" data-act="endTurn">${again ? '🎲 Tira ancora' : 'Fine turno'}</button></div>`;
+        <button class="btn ${again ? 'green' : 'gold'}" data-act="endTurn">${again ? '🎲 Tira ancora' : 'Fine turno'}</button>${cheatHTML(true)}</div>`;
+      html += acesHTML(m, true);
       return html + logHTML(4);
     }
     return logHTML(3);
@@ -271,7 +338,7 @@
       if (!pr.mortgaged) btns += `<button class="btn sm ghost ${pm.mortgage ? '' : 'off'}" data-act="mortgage" data-i="${i}">Ipoteca +${sq.price / 2}</button>`;
       else btns += `<button class="btn sm gold ${pm.unmortgage ? '' : 'off'}" data-act="unmortgage" data-i="${i}">Riscatta −${Math.ceil(sq.price * 0.55)}</button>`;
       out.push(`<div class="prop${pr.mortgaged ? ' mort' : ''}"><div class="bar" style="background:${colorOf(i)}"></div><div class="pc">
-        <div class="pn"><span>${esc(sq.name)}</span>${hs}</div>
+        <div class="pn"><span>${esc(nm(i))}</span>${hs}</div>
         <div class="ps">${pr.mortgaged ? '<span class="tag red">IPOTECATA</span>' : `Affitto ora: <b>${rentNow(i)}</b>`} ${full ? '<span class="tag gold">★ colore completo</span>' : ''}</div>
         <div class="pb">${btns}</div></div></div>`);
     }
@@ -280,7 +347,7 @@
 
   function propChips(list, side, selected, theirs) {
     if (!list.length) return '<span class="muted">nessuna proprietà</span>';
-    return `<div class="chips">${list.map((i) => `<button class="chip ${selected.includes(i) ? 'on' : ''} ${tradable(i) ? '' : 'dis'}" data-act="tprop" data-side="${side}" data-i="${i}">${esc(BOARD[i].name)}${S.props[i].mortgaged ? ' 🔒' : ''}</button>`).join('')}</div>`;
+    return `<div class="chips">${list.map((i) => `<button class="chip ${selected.includes(i) ? 'on' : ''} ${tradable(i) ? '' : 'dis'}" data-act="tprop" data-side="${side}" data-i="${i}">${esc(nm(i))}${S.props[i].mortgaged ? ' 🔒' : ''}</button>`).join('')}</div>`;
   }
 
   function stepper(side, val, max) {
@@ -330,7 +397,7 @@
       const pr = propsOf(p.id);
       return `<div class="card" style="padding:10px"><div class="hrow" style="color:var(--ink)"><div class="av" style="--c:${p.color}">${p.emoji}</div>
         <div><div class="hname">${esc(p.name)}${p.id === S.turn && S.status === 'playing' ? ' ⭐' : ''}</div>
-        <div class="hsub" style="color:var(--muted);opacity:1">${p.bankrupt ? '💀 fuori' : p.inJail ? '🚔 in prigione' : BOARD[p.pos].name}${p.connected ? '' : ' · offline'}</div></div>
+        <div class="hsub" style="color:var(--muted);opacity:1">${p.bankrupt ? '💀 fuori' : p.inJail ? '🚔 in prigione' : nm(p.pos)}${p.connected ? '' : ' · offline'}</div></div>
         <div class="hcash" style="font-size:20px;color:var(--ink)">${p.cash !== null ? eur(p.cash) : ''}</div></div>
         <div style="margin-top:6px;display:flex;gap:3px;flex-wrap:wrap">${pr.map((i) => `<span style="width:14px;height:14px;border-radius:3px;background:${colorOf(i)};opacity:${S.props[i].mortgaged ? .35 : 1};border:1px solid rgba(0,0,0,.3)"></span>`).join('')}</div></div>`;
     }).join('');
@@ -338,17 +405,34 @@
     return html;
   }
 
+  function rulesHTML(st) {
+    const L = [];
+    if (st.speedDie) L.push('<b>🎲 Dado matto</b>: un terzo dado. I numeri si sommano; 🃏 Jolly = dopo il movimento corri alla prossima proprietà libera; 🚌 Navetta = scegli quale dado usare (o la somma). Tris = vai dove vuoi!');
+    if (st.aces) L.push('<b>🃏 Assi nella manica</b>: massimo 3 carte speciali (scudo, furto, doppio affitto, salta turno, teletrasporto…). Se ne pesca passando dalla Partenza.');
+    if (st.events) L.push('<b>🎪 Eventi</b>: a ogni giro cambia una regola per tutte (Partenza d\'oro, saldi, sciopero treni, tregua…).');
+    if (st.cheat) L.push('<b>🕵️ Furbetti</b>: nel tuo turno puoi barare di nascosto (+€100). Se qualcuna ti accusa giusto paghi €200, se accusa a vuoto paga €50. I soldi restano segreti.');
+    if (st.freeParking) L.push('<b>🍹 Piatto</b>: tasse e multe finiscono al centro; chi arriva alla Pausa Aperitivo li prende.');
+    return L.length ? L.map((x) => `<p>${x}</p>`).join('') : '<p class="muted">Regole classiche.</p>';
+  }
   function renderLobby(m) {
     const host = S.hostId === S.you;
     const st = S.settings;
     return `<div class="wrap"><div class="logo">${esc(D.TITLE)}</div><div class="sub">In attesa di iniziare…</div>
       <div class="card"><h3>Giocatrici (${S.players.length})</h3>
       ${S.players.map((p) => `<p style="display:flex;align-items:center;gap:10px"><span class="av" style="--c:${p.color};width:38px;height:38px;font-size:20px">${p.emoji}</span><b>${esc(p.name)}</b>${p.id === S.hostId ? ' ⭐' : ''}${p.id === S.you ? ' <span class="muted">(tu)</span>' : ''}</p>`).join('')}</div>
-      ${host ? `<div class="card"><h3>Regole</h3><div class="chips">
-        <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
+      ${host ? `<div class="card"><h3>Regole</h3>
+        <div class="row"><button class="btn sm gold" data-act="preset" data-k="ultra">🎉 Ultra</button><button class="btn sm ghost" data-act="preset" data-k="classic">📜 Classico</button></div>
+        <div class="chips" style="margin-top:12px">
+        <button class="chip ${st.speedDie ? 'on' : ''}" data-act="set" data-k="speedDie">🎲 Dado matto</button>
+        <button class="chip ${st.aces ? 'on' : ''}" data-act="set" data-k="aces">🃏 Assi nella manica</button>
+        <button class="chip ${st.events ? 'on' : ''}" data-act="set" data-k="events">🎪 Eventi di città</button>
+        <button class="chip ${st.cheat ? 'on' : ''}" data-act="set" data-k="cheat">🕵️ Furbetti</button>
         <button class="chip ${st.freeParking ? 'on' : ''}" data-act="set" data-k="freeParking">🍹 Piatto aperitivo</button>
-        <button class="chip ${st.showCash ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili</button>
-        <button class="chip ${st.auctions ? 'on' : ''}" data-act="set" data-k="auctions">🔨 Aste</button></div>
+        <button class="chip ${st.auctions ? 'on' : ''}" data-act="set" data-k="auctions">🔨 Aste</button>
+        <button class="chip ${st.showCash && !st.cheat ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili</button>
+        <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
+        <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button></div>
+        <div class="rules">${rulesHTML(st)}</div>
         <button class="btn green ${S.players.length < 2 ? 'off' : ''}" data-act="start">Inizia la partita</button></div>`
         : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone).</p></div>`}
       <button class="btn ghost" data-act="leave">Esci</button></div>`;
@@ -405,12 +489,27 @@
         if (a === 'leave' && !confirm('Uscire dalla partita?')) return;
         await act({ type: a }); if (a === 'leave') logout(); return;
       case 'bid': await act({ type: 'bid', amount: Number(d.amt) }); return;
+      case 'preset': await act({ type: 'settings', preset: d.k }); return;
+      case 'busPick': await act({ type: 'busPick', pick: d.p }); buzz(30); return;
+      case 'warpTo': { const r = await act({ type: 'warpTo', idx: Number(d.i) }); if (r.ok) pick = null; return; }
+      case 'cheat': { const r = await act({ type: 'cheat' }); if (r.ok) toast('🕵️ Fatto… nessuno ha visto'); return; }
+      case 'accuse': await act({ type: 'accuse' }); return;
+      case 'ace': {
+        const A = D.ACES[d.k];
+        if (A.target === 'none') { const r = await act({ type: 'ace', ace: d.k }); if (r.ok) buzz(40); }
+        else { pick = { kind: 'ace', key: d.k }; render(); window.scrollTo(0, 0); }
+        return;
+      }
+      case 'cancelPick': pick = null; render(); return;
+      case 'acetarget': { const r = await act({ type: 'ace', ace: pick.key, target: d.id }); if (r.ok) { pick = null; buzz(40); } render(); return; }
+      case 'acesq': { const r = await act({ type: 'ace', ace: pick.key, idx: Number(d.i) }); if (r.ok) { pick = null; buzz(40); } render(); return; }
       case 'build': case 'sell': case 'mortgage': case 'unmortgage': await act({ type: a, idx: Number(d.i) }); return;
       case 'bankrupt': if (confirm('Confermi? Perdi tutto e esci dal gioco.')) await act({ type: 'bankrupt' }); return;
       case 'resign': if (confirm('Vuoi davvero arrenderti? Esci dal gioco e lasci tutto alla banca.')) await act({ type: 'bankrupt' }); return;
       case 'set': {
         const st = S.settings;
         if (d.k === 'startCash') { const o = [1000, 1500, 2000, 3000]; await act({ type: 'settings', startCash: o[(o.indexOf(st.startCash) + 1) % o.length] }); }
+        else if (d.k === 'theme') { const o = Object.keys(D.THEMES); await act({ type: 'settings', theme: o[(o.indexOf(st.theme) + 1) % o.length] }); }
         else await act({ type: 'settings', [d.k]: !st[d.k] });
         return;
       }

@@ -13,6 +13,7 @@ function newGame(n = 3) {
   const g = new Game(rng);
   const names = ['Anna', 'Bea', 'Chiara', 'Dora'];
   const em = ['🚗', '🎩', '🐶', '🐱'];
+  g.setSettings({ preset: 'classic' });
   for (let i = 0; i < n; i++) g.join(names[i], em[i]);
   g.players = g.players.slice(); // niente shuffle: ordine di ingresso
   const shuffled = g.rng;
@@ -261,6 +262,151 @@ t('salvataggio e ripresa', () => {
   const g = newGame();
   const copy = Game.fromJSON(JSON.parse(JSON.stringify(g)), rng);
   assert.deepStrictEqual(copy.view('x'), g.view('x'));
+});
+
+// ---------- regole 2.0 ----------
+const speed = (d) => queue.push(d === 'J' ? 0.7 : d === 'B' ? 0.99 : (d - 1) / 6 + 0.01); // facce: 1,2,3,J,J,B
+function newUltra(n = 3, tweak) {
+  queue = [];
+  const g = new Game(rng);
+  g.setSettings({ preset: 'ultra', events: false, aces: false, cheat: false, freeParking: false });
+  if (tweak) g.setSettings(tweak);
+  const names = ['Anna', 'Bea', 'Chiara', 'Dora'];
+  const em = ['🚗', '🎩', '🐶', '🐱'];
+  for (let i = 0; i < n; i++) g.join(names[i], em[i]);
+  const keep = g.rng; g.rng = () => 0.999; g.start(); g.rng = keep;
+  return g;
+}
+
+t('dado matto: il terzo dado si somma', () => {
+  const g = newUltra();
+  const p = g.cur;
+  dice(1, 2); speed(3); // 1+2+3 = 6
+  assert.ok(g.act(p.id, { type: 'roll' }).ok);
+  assert.strictEqual(p.pos, 6);
+  assert.strictEqual(g.dice.d3, 3);
+});
+
+t('dado matto: jolly porta alla prossima proprietà libera', () => {
+  const g = newUltra();
+  const p = g.cur;
+  give(g, g.players.find((q) => q.id !== p.id), 3);
+  dice(1, 2); speed('J'); // arriva a 3 (di altri, paga), poi jolly -> prima libera dopo 3 = 5
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(p.pos, 5); // la 4 è una tassa, la 5 è la stazione libera
+  assert.strictEqual(g.phase, 'buy');
+});
+
+t('dado matto: navetta lascia scegliere il dado', () => {
+  const g = newUltra();
+  const p = g.cur;
+  dice(2, 5); speed('B');
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(g.phase, 'choose');
+  assert.ok(!g.act(p.id, { type: 'busPick', pick: 'zzz' }).ok);
+  assert.ok(g.act(p.id, { type: 'busPick', pick: 'd2' }).ok);
+  assert.strictEqual(p.pos, 5);
+});
+
+t('dado matto: tris permette di andare dove si vuole', () => {
+  const g = newUltra();
+  const p = g.cur;
+  dice(2, 2); speed(2);
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(g.phase, 'choose');
+  assert.strictEqual(g.choice.kind, 'tris');
+  assert.ok(g.act(p.id, { type: 'warpTo', idx: 24 }).ok);
+  assert.strictEqual(p.pos, 24);
+  assert.ok(g.canRollAgain);
+});
+
+t('dado matto: in prigione non si usa', () => {
+  const g = newUltra();
+  const p = g.cur;
+  p.inJail = true; p.pos = 10;
+  dice(1, 2);
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(g.dice.d3, 0);
+});
+
+t('asso scudo: blocca un affitto', () => {
+  const g = newUltra(3, { aces: true });
+  const [a, b] = g.players;
+  give(g, b, 3);
+  a.aces = ['shield'];
+  a.pos = 0; g.turnIdx = 0; g.phase = 'roll';
+  assert.ok(g.act(a.id, { type: 'ace', ace: 'shield' }).ok);
+  assert.ok(a.shield);
+  dice(1, 2); speed(1); // 1+2+1 = 4... usiamo 3 caselle: niente terzo dado numerico
+  queue = []; dice(1, 2); speed(1); g.settings.speedDie = false; queue = []; dice(1, 2);
+  g.act(a.id, { type: 'roll' });
+  assert.strictEqual(a.cash, 1500);
+  assert.ok(!a.shield);
+});
+
+t('asso furto, doppio affitto e salto turno', () => {
+  const g = newUltra(3, { aces: true });
+  const [a, b, c] = g.players;
+  a.aces = ['steal', 'skip', 'x2'];
+  const r = g.act(a.id, { type: 'ace', ace: 'steal', target: b.id });
+  assert.ok(r.ok);
+  assert.strictEqual(a.cash, 1600); assert.strictEqual(b.cash, 1400);
+  g.act(a.id, { type: 'ace', ace: 'skip', target: b.id });
+  assert.strictEqual(b.skip, 1);
+  g.act(a.id, { type: 'ace', ace: 'x2' });
+  assert.ok(a.x2);
+  assert.ok(!g.act(a.id, { type: 'ace', ace: 'steal', target: b.id }).ok); // non ce l'ha più
+  g.phase = 'action';
+  g.act(a.id, { type: 'endTurn' });
+  assert.strictEqual(g.cur.id, c.id); // Bea salta
+  assert.strictEqual(b.skip, 0);
+});
+
+t('furbetti: accusa giusta e sbagliata', () => {
+  const g = newUltra(3, { cheat: true });
+  const [a, b, c] = g.players;
+  assert.ok(g.act(a.id, { type: 'cheat' }).ok);
+  assert.strictEqual(a.cash, 1600);
+  assert.ok(!g.act(a.id, { type: 'cheat' }).ok);
+  g.act(b.id, { type: 'accuse' });
+  assert.strictEqual(a.cash, 1400); assert.strictEqual(b.cash, 1700);
+  g.act(c.id, { type: 'accuse' }); // ormai innocente: c paga 50
+  assert.strictEqual(c.cash, 1450); assert.strictEqual(a.cash, 1450);
+  assert.ok(!g.act(c.id, { type: 'accuse' }).ok);
+});
+
+t('eventi: partenza d\'oro, tregua, saldi', () => {
+  const g = newUltra(3, { events: true });
+  const [a, b] = g.players;
+  g.event = { key: 'bonusGo', icon: '', title: 'x', text: '' };
+  g.passGo(a);
+  assert.strictEqual(a.cash, 1900);
+  g.event = { key: 'truce', icon: '', title: 'Tregua', text: '' };
+  give(g, b, 3);
+  a.pos = 0; g.turnIdx = 0; g.phase = 'roll';
+  g.settings.speedDie = false;
+  dice(1, 2); g.act(a.id, { type: 'roll' });
+  assert.strictEqual(a.cash, 1900);
+  g.event = { key: 'saldi', icon: '', title: 'Saldi', text: '' };
+  assert.strictEqual(g.priceOf(1), 50); // 60 -> 48 -> 50
+});
+
+t('temi: i nomi cambiano', () => {
+  const g = newUltra(3, { theme: 'mondo' });
+  assert.strictEqual(g.nm(39), 'Hong Kong');
+});
+
+t('carte nuove: furto da carta, scambio posto', () => {
+  const g = newUltra(3);
+  const [a, b, c] = g.players;
+  // trova indice della carta heist
+  const { CARDS } = require('../public/shared/data.js');
+  const id = CARDS.fortuna.findIndex((c2) => c2.fx === 'heist');
+  g.decks.fortuna = [id, ...g.decks.fortuna.filter((x) => x !== id)];
+  g.rng = () => 0; // sceglie la prima vittima
+  g.drawCard(a, 'fortuna');
+  assert.strictEqual(a.cash + b.cash + c.cash, 4500);
+  assert.strictEqual(a.cash, 1600);
 });
 
 console.log(`\n${passed} test passati`);

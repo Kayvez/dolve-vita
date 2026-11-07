@@ -64,3 +64,13 @@ Se non hai abbastanza soldi per pagare, compare **Devi pagare**: ipoteca, vendi 
 - Test: `node test/rules.js` (regole) e `node test/simulate.js 200` (200 partite complete giocate a caso).
 
 *Non è un prodotto Hasbro: "Monopoly" è un marchio di Hasbro. Questo è un gioco originale ispirato al genere, con nomi e carte propri.*
+
+## Novità della versione 2.0 (tutto attivabile prima di iniziare)
+Sul tabellone o dal telefono di chi ha creato la partita: **🎉 Ultra** (tutte le novità) oppure **📜 Classico**.
+- **🎲 Dado matto**: terzo dado arancione. I numeri si sommano; **🃏 Jolly** = dopo il movimento corri alla prossima proprietà libera; **🚌 Navetta** = scegli quale dado usare (o la somma); **Tris** (doppio uguale al terzo dado) = vai dove vuoi.
+- **🃏 Assi nella manica** (max 3): scudo, furto, doppio affitto, salta turno, cambio posto, festa a sorpresa, teletrasporto. Se ne pesca passando dalla Partenza.
+- **🎪 Eventi di città**: a ogni giro cambia una regola (Partenza d'oro, saldi, sciopero treni, tregua, festa di un colore, bonus).
+- **🕵️ Furbetti** (spento di default): nel tuo turno puoi barare di nascosto (+€100). Accusa giusta: paghi €200; accusa sbagliata: paga €50 chi accusa. I soldi restano segreti.
+- **🗺️ Temi**: Italia, Giro del mondo, Gola (cambiano solo i nomi delle caselle).
+- Carte Fortuna/Sorpresa nuove (Robin Hood, colpo grosso, cambio posto…).
+- Grafica nuova: pedine che saltano casella per casella, dadi grandi, soldi che volano, coriandoli, annunci a tutto schermo.
