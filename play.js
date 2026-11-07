@@ -172,10 +172,12 @@
   function headerHTML(m) {
     const cur = S.status === 'playing' ? P(S.turn) : null;
     let bar = '';
-    if (cur) bar = S.turn === S.you ? '<div class="turnbar me">⭐ Tocca a te!</div>' : `<div class="turnbar">Tocca a ${cur.emoji} ${esc(cur.name)}</div>`;
+    const round = S.settings.maxRounds ? ` · giro ${Math.min(S.round + 1, S.settings.maxRounds)}/${S.settings.maxRounds}` : '';
+    if (cur) bar = S.turn === S.you ? `<div class="turnbar me">⭐ Tocca a te!${round}</div>` : `<div class="turnbar">Tocca a ${cur.emoji} ${esc(cur.name)}${round}</div>`;
     const d = delta && Date.now() < delta.until ? `<span class="delta ${delta.v > 0 ? 'up' : 'down'}">${delta.v > 0 ? '+' : '−'}${Math.abs(delta.v)}</span>` : '';
     return `<header><div class="hrow"><div class="av" style="--c:${m.color}">${m.emoji}</div>
       <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : nm(m.pos)}</div></div>
+      <button class="hq" data-act="help">?</button>
       <div class="hbadges">${m.shield ? '🛡️' : ''}${m.x2 ? '✖️2' : ''}${m.skip ? '⏭️' : ''}</div>
       <div class="hcash">${m.cash !== null ? eur(m.cash) : ''}${d}</div></div>${bar}</header>`;
   }
@@ -229,12 +231,31 @@
     return `<div class="card"><h3>${A.icon} ${A.name}: ${A.target === 'player' ? 'scegli chi' : 'scegli dove andare'}</h3>${body}${pick.kind === 'tris' ? '' : '<button class="btn ghost" data-act="cancelPick">Annulla</button>'}</div>`;
   }
 
+  function bankerHTML(m) {
+    if (!S.settings.banker || !S.bankerId) return '';
+    const b = P(S.bankerId);
+    if (S.bankerId === S.you) {
+      let h = '<div class="card bankcard"><h3>🏦 Sei il banchiere</h3>';
+      if (!S.payouts.length) h += '<p class="muted">Quando la banca deve pagare qualcuno (Partenza, carte), comparirà qui. Quello che non dai lo tieni tu, di nascosto… ma se ti accusano giusto restituisci il doppio.</p>';
+      for (const x of S.payouts) {
+        const q = P(x.pid);
+        h += `<div class="payrow"><p><b>Paga ${q.emoji} ${esc(q.name)}</b>: ${eur(x.amount)} <span class="muted">(${esc(x.reason)})</span></p>
+          <div class="row">${[[100, 'Tutto'], [75, '¾'], [50, 'Metà'], [0, 'Niente']].map(([pc, lb]) => `<button class="btn sm ${pc === 100 ? 'green' : 'ghost'}" data-act="payBanker" data-id="${x.id}" data-pct="${pc}">${lb}<br><small>${eur(Math.floor(x.amount * pc / 100))}</small></button>`).join('')}</div></div>`;
+      }
+      return h + '</div>';
+    }
+    let h = '';
+    if (S.incoming.length) h += `<div class="evbox" style="background:linear-gradient(90deg,#1c7a4f,#27a56a)">💰 Il banchiere ti deve pagare ${eur(S.incoming.reduce((n, x) => n + x.amount, 0))}</div>`;
+    if (S.canAccuseBanker) h += `<div class="card bankcard" style="padding:10px"><p class="muted" style="margin:0 0 6px">🏦 Il banchiere è ${b.emoji} ${esc(b.name)}. Ti ha dato meno del dovuto?</p><button class="btn sm gold" data-act="accuseBanker">🔎 Accusa il banchiere</button></div>`;
+    return h;
+  }
+
   function panelTurn(m) {
     if (m.bankrupt) return '<div class="card"><h3>Sei fuori dal gioco 😢</h3><p class="muted">Puoi guardare il resto della partita sul tabellone.</p></div>';
     const myTurn = S.turn === S.you;
     const cur = P(S.turn);
     const sqCur = BOARD[cur.pos];
-    let html = eventHTML();
+    let html = bankerHTML(m) + eventHTML();
     if (myTurn && S.phase === 'choose' && S.choice && S.choice.kind === 'tris') pick = { kind: 'tris' };
     if (pick && myTurn && ['roll', 'action', 'choose'].includes(S.phase)) return html + pickerHTML(m);
     pick = null;
@@ -330,13 +351,15 @@
       const sq = BOARD[i], pr = S.props[i], pm = perms[i] || {};
       const full = sq.type === 'street' && ownsAll(S.you, sq.group);
       const hs = sq.type === 'street' && pr.houses ? `<span class="hs">${pr.houses === 5 ? '<i class="hotel"></i>' : '<i></i>'.repeat(pr.houses)}</span>` : '';
+      const why = pm.why || {};
+      const B = (act, cls, label, ok) => `<button class="btn sm ${cls} ${ok ? '' : 'off'}" data-act="${ok ? act : 'why'}" data-i="${i}" data-w="${esc(why[act] || '')}">${label}</button>`;
       let btns = '';
       if (sq.type === 'street' && full) {
-        btns += `<button class="btn sm green ${pm.build ? '' : 'off'}" data-act="build" data-i="${i}">${pr.houses === 4 ? '🏨 Albergo' : '🏠 Casa'} −${sq.houseCost}</button>`;
-        if (pr.houses > 0) btns += `<button class="btn sm ghost ${pm.sell ? '' : 'off'}" data-act="sell" data-i="${i}">Vendi +${sq.houseCost / 2}</button>`;
+        btns += B('build', 'green', `${pr.houses === 4 ? '🏨 Albergo' : '🏠 Casa'} −${sq.houseCost}`, pm.build);
+        if (pr.houses > 0) btns += B('sell', 'ghost', `Vendi +${sq.houseCost / 2}`, pm.sell);
       }
-      if (!pr.mortgaged) btns += `<button class="btn sm ghost ${pm.mortgage ? '' : 'off'}" data-act="mortgage" data-i="${i}">Ipoteca +${sq.price / 2}</button>`;
-      else btns += `<button class="btn sm gold ${pm.unmortgage ? '' : 'off'}" data-act="unmortgage" data-i="${i}">Riscatta −${Math.ceil(sq.price * 0.55)}</button>`;
+      if (!pr.mortgaged) btns += B('mortgage', 'ghost', `Ipoteca +${sq.price / 2}`, pm.mortgage);
+      else btns += B('unmortgage', 'gold', `Riscatta −${Math.ceil(sq.price * 0.55)}`, pm.unmortgage);
       out.push(`<div class="prop${pr.mortgaged ? ' mort' : ''}"><div class="bar" style="background:${colorOf(i)}"></div><div class="pc">
         <div class="pn"><span>${esc(nm(i))}</span>${hs}</div>
         <div class="ps">${pr.mortgaged ? '<span class="tag red">IPOTECATA</span>' : `Affitto ora: <b>${rentNow(i)}</b>`} ${full ? '<span class="tag gold">★ colore completo</span>' : ''}</div>
@@ -405,37 +428,64 @@
     return html;
   }
 
-  function rulesHTML(st) {
-    const L = [];
-    if (st.speedDie) L.push('<b>🎲 Dado matto</b>: un terzo dado. I numeri si sommano; 🃏 Jolly = dopo il movimento corri alla prossima proprietà libera; 🚌 Navetta = scegli quale dado usare (o la somma). Tris = vai dove vuoi!');
-    if (st.aces) L.push('<b>🃏 Assi nella manica</b>: massimo 3 carte speciali (scudo, furto, doppio affitto, salta turno, teletrasporto…). Se ne pesca passando dalla Partenza.');
-    if (st.events) L.push('<b>🎪 Eventi</b>: a ogni giro cambia una regola per tutte (Partenza d\'oro, saldi, sciopero treni, tregua…).');
-    if (st.cheat) L.push('<b>🕵️ Furbetti</b>: nel tuo turno puoi barare di nascosto (+€100). Se qualcuna ti accusa giusto paghi €200, se accusa a vuoto paga €50. I soldi restano segreti.');
-    if (st.freeParking) L.push('<b>🍹 Piatto</b>: tasse e multe finiscono al centro; chi arriva alla Pausa Aperitivo li prende.');
-    return L.length ? L.map((x) => `<p>${x}</p>`).join('') : '<p class="muted">Regole classiche.</p>';
-  }
+  let modal = null;            // null | 'help' | 'intro'
+  let introFor = null;
+  const openRules = new Set();
+  const FEAT = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions'];
+  const DUR = { 0: 'senza limite', 20: '20 giri', 30: '30 giri', 50: '50 giri' };
+
+  function ruleDetail(k) { return D.RULES[k].long.map((x) => `<p>${x}</p>`).join(''); }
+
   function renderLobby(m) {
     const host = S.hostId === S.you;
     const st = S.settings;
+    const mv = S.myVotes || {};
+    const rows = FEAT.map((k) => {
+      const R = D.RULES[k], t = (S.votes || {})[k] || { yes: 0, no: 0 };
+      const on = !!st[k];
+      return `<div class="vrule"><div class="vt"><span class="vi">${R.icon}</span><div><b>${R.title}</b><small>${R.short}</small></div>
+        <button class="info" data-act="rinfo" data-k="${k}">${openRules.has(k) ? '▲' : 'ℹ︎'}</button></div>
+        ${openRules.has(k) ? `<div class="rdet">${ruleDetail(k)}</div>` : ''}
+        <div class="vb"><button class="vote ${mv[k] ? 'on' : ''}" data-act="vote" data-k="${k}" data-v="1">👍 Sì</button><button class="vote ${mv[k] === false ? 'on no' : ''}" data-act="vote" data-k="${k}" data-v="0">👎 No</button>
+        <span class="vr ${on ? 'yes' : ''}">${t.yes} sì · ${t.no} no → ${on ? '✅ attiva' : '⬜ spenta'}</span></div></div>`;
+    }).join('');
     return `<div class="wrap"><div class="logo">${esc(D.TITLE)}</div><div class="sub">In attesa di iniziare…</div>
       <div class="card"><h3>Giocatrici (${S.players.length})</h3>
       ${S.players.map((p) => `<p style="display:flex;align-items:center;gap:10px"><span class="av" style="--c:${p.color};width:38px;height:38px;font-size:20px">${p.emoji}</span><b>${esc(p.name)}</b>${p.id === S.hostId ? ' ⭐' : ''}${p.id === S.you ? ' <span class="muted">(tu)</span>' : ''}</p>`).join('')}</div>
-      ${host ? `<div class="card"><h3>Regole</h3>
-        <div class="row"><button class="btn sm gold" data-act="preset" data-k="ultra">🎉 Ultra</button><button class="btn sm ghost" data-act="preset" data-k="classic">📜 Classico</button></div>
-        <div class="chips" style="margin-top:12px">
-        <button class="chip ${st.speedDie ? 'on' : ''}" data-act="set" data-k="speedDie">🎲 Dado matto</button>
-        <button class="chip ${st.aces ? 'on' : ''}" data-act="set" data-k="aces">🃏 Assi nella manica</button>
-        <button class="chip ${st.events ? 'on' : ''}" data-act="set" data-k="events">🎪 Eventi di città</button>
-        <button class="chip ${st.cheat ? 'on' : ''}" data-act="set" data-k="cheat">🕵️ Furbetti</button>
-        <button class="chip ${st.freeParking ? 'on' : ''}" data-act="set" data-k="freeParking">🍹 Piatto aperitivo</button>
-        <button class="chip ${st.auctions ? 'on' : ''}" data-act="set" data-k="auctions">🔨 Aste</button>
-        <button class="chip ${st.showCash && !st.cheat ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili</button>
+      <div class="card"><h3>🗳️ Scegliamo le regole</h3>
+        <p class="muted">Vota quello che vuoi: vince la maggioranza. In caso di pareggio decide ${esc(P(S.hostId).name)} ⭐.</p>
+        <div class="row"><button class="btn sm gold" data-act="vpreset" data-k="ultra">🎉 Voglio tutto (Ultra)</button><button class="btn sm ghost" data-act="vpreset" data-k="classic">📜 Solo classico</button></div>
+        ${rows}</div>
+      ${host ? `<div class="card"><h3>Impostazioni di ${esc(m.name)} ⭐</h3><div class="chips">
         <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
-        <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button></div>
-        <div class="rules">${rulesHTML(st)}</div>
+        <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button>
+        <button class="chip" data-act="set" data-k="maxRounds">⏱️ Durata: ${DUR[st.maxRounds]}</button>
+        <button class="chip ${st.showCash && !st.cheat ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
         <button class="btn green ${S.players.length < 2 ? 'off' : ''}" data-act="start">Inizia la partita</button></div>`
-        : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone).</p></div>`}
+        : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone). Partita: ${(D.THEMES[st.theme] || D.THEMES.italia).label}, ${eur(st.startCash)}, durata ${DUR[st.maxRounds]}.</p></div>`}
+      <button class="btn ghost" data-act="help">❓ Come si gioca</button>
       <button class="btn ghost" data-act="leave">Esci</button></div>`;
+  }
+
+  function activeRulesHTML(detailed) {
+    const st = S.settings;
+    const on = FEAT.filter((k) => st[k]);
+    const off = FEAT.filter((k) => !st[k]);
+    return `${on.length ? on.map((k) => `<div class="rl"><b>${D.RULES[k].icon} ${D.RULES[k].title}</b>${detailed ? ruleDetail(k) : `<p>${D.RULES[k].short}</p>`}</div>`).join('') : '<p class="muted">Si gioca con le regole classiche.</p>'}
+      ${off.length ? `<p class="muted">Spente: ${off.map((k) => D.RULES[k].icon + ' ' + D.RULES[k].title).join(', ')}.</p>` : ''}
+      <p class="muted">${D.THEMES[st.theme] ? D.THEMES[st.theme].label : ''} · si parte con ${eur(st.startCash)} · durata ${DUR[st.maxRounds]}</p>`;
+  }
+  function modalHTML() {
+    if (modal === 'intro') {
+      return `<div class="modal"><div class="mbox"><h2>🎉 Si comincia!</h2><p class="muted">Queste sono le regole di stasera:</p>${activeRulesHTML(true)}
+        <button class="btn green" data-act="closeModal">Ho capito, si gioca!</button></div></div>`;
+    }
+    if (modal === 'help') {
+      return `<div class="modal"><div class="mbox"><h2>❓ Come si gioca</h2>${D.BASICS.map((x) => `<p>${x}</p>`).join('')}
+        <h3 style="margin-top:14px">Regole speciali di questa partita</h3>${S.status === 'lobby' ? '<p class="muted">Si decidono con il voto qui sotto.</p>' + FEAT.map((k) => `<div class="rl"><b>${D.RULES[k].icon} ${D.RULES[k].title}</b>${ruleDetail(k)}</div>`).join('') : activeRulesHTML(true)}
+        <button class="btn gold" data-act="closeModal">Chiudi</button></div></div>`;
+    }
+    return '';
   }
 
   function renderEnded(m) {
@@ -451,13 +501,18 @@
     const m = me();
     if (!m) { renderJoin(); return; }
     joinBuilt = false;
-    if (S.status === 'lobby') { app.innerHTML = renderLobby(m); return; }
+    if (S.status === 'playing' && S.gameId && introFor !== S.gameId) {
+      introFor = S.gameId;
+      let seen = null; try { seen = localStorage.getItem('dv_seen'); } catch (e) { /* */ }
+      if (seen !== S.gameId) modal = 'intro';
+    }
+    if (S.status === 'lobby') { app.innerHTML = renderLobby(m) + modalHTML(); return; }
     if (S.status === 'ended') { app.innerHTML = renderEnded(m); return; }
     const incoming = S.trades.filter((t) => t.to === S.you).length;
     const body = tab === 'turno' ? panelTurn(m) : tab === 'props' ? panelProps(m) : tab === 'scambi' ? panelTrade(m) : panelPlayers(m);
     app.innerHTML = headerHTML(m) + `<div class="wrap">${body}</div>
       <nav>${[['turno', '🎲', 'Turno'], ['props', '🏠', 'Proprietà'], ['scambi', '🤝', 'Scambi'], ['gioc', '👥', 'Giocatori']]
-        .map(([k, ic, lb]) => `<button class="${tab === k ? 'on' : ''}" data-tab="${k}"><span>${ic}</span>${lb}${k === 'scambi' && incoming ? `<i class="bd">${incoming}</i>` : ''}</button>`).join('')}</nav>`;
+        .map(([k, ic, lb]) => `<button class="${tab === k ? 'on' : ''}" data-tab="${k}"><span>${ic}</span>${lb}${k === 'scambi' && incoming ? `<i class="bd">${incoming}</i>` : ''}</button>`).join('')}</nav>` + modalHTML();
   }
 
   // ---------- eventi ----------
@@ -489,7 +544,14 @@
         if (a === 'leave' && !confirm('Uscire dalla partita?')) return;
         await act({ type: a }); if (a === 'leave') logout(); return;
       case 'bid': await act({ type: 'bid', amount: Number(d.amt) }); return;
-      case 'preset': await act({ type: 'settings', preset: d.k }); return;
+      case 'payBanker': await act({ type: 'payBanker', id: Number(d.id), pct: Number(d.pct) }); return;
+      case 'accuseBanker': { const r = await act({ type: 'accuseBanker' }); return r; }
+      case 'help': modal = 'help'; render(); return;
+      case 'closeModal': { if (modal === 'intro' && S.gameId) { try { localStorage.setItem('dv_seen', S.gameId); } catch (e) { /* */ } } modal = null; render(); return; }
+      case 'why': if (d.w) toast(d.w, true); return;
+      case 'rinfo': if (openRules.has(d.k)) openRules.delete(d.k); else openRules.add(d.k); render(); return;
+      case 'vote': await act({ type: 'vote', key: d.k, value: d.v === '1' }); return;
+      case 'vpreset': await act({ type: 'vote', preset: d.k }); return;
       case 'busPick': await act({ type: 'busPick', pick: d.p }); buzz(30); return;
       case 'warpTo': { const r = await act({ type: 'warpTo', idx: Number(d.i) }); if (r.ok) pick = null; return; }
       case 'cheat': { const r = await act({ type: 'cheat' }); if (r.ok) toast('🕵️ Fatto… nessuno ha visto'); return; }
@@ -509,6 +571,7 @@
       case 'set': {
         const st = S.settings;
         if (d.k === 'startCash') { const o = [1000, 1500, 2000, 3000]; await act({ type: 'settings', startCash: o[(o.indexOf(st.startCash) + 1) % o.length] }); }
+        else if (d.k === 'maxRounds') { const o = [0, 20, 30, 50]; await act({ type: 'settings', maxRounds: o[(o.indexOf(st.maxRounds) + 1) % o.length] }); }
         else if (d.k === 'theme') { const o = Object.keys(D.THEMES); await act({ type: 'settings', theme: o[(o.indexOf(st.theme) + 1) % o.length] }); }
         else await act({ type: 'settings', [d.k]: !st[d.k] });
         return;

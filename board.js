@@ -147,7 +147,8 @@
       <div id="cMain"></div>
       <div id="log"></div>
       <div id="cardPop"></div>
-      <div id="announce"></div>`;
+      <div id="announce"></div>
+      <div id="intro"></div>`;
     el.appendChild(c);
     const layer = document.createElement('div');
     layer.id = 'tokLayer';
@@ -410,6 +411,7 @@
       }).join('');
       const bits = [];
       if (p.bankrupt) bits.push('💀'); else if (p.inJail) bits.push('🚔');
+      if (S.bankerId === p.id) bits.push('🏦');
       if (p.shield) bits.push('🛡️');
       if (p.x2) bits.push('✖️2');
       if (p.skip) bits.push('⏭️');
@@ -481,6 +483,7 @@
   function renderCenter() {
     const turn = $('#turn'), hint = $('#hint'), main = $('#cMain');
     $('#title').textContent = S.title || D.TITLE;
+    $('#subtitle').textContent = S.status === 'playing' && S.settings.maxRounds ? `giro ${Math.min(S.round + 1, S.settings.maxRounds)} di ${S.settings.maxRounds}` : 'il gioco delle serate';
     const eb = $('#eventBar');
     if (S.status === 'playing' && S.event) {
       eb.innerHTML = `<span class="ev">${S.event.icon} <b>${S.event.title}</b> · ${S.event.text}</span>`;
@@ -495,15 +498,15 @@
       const players = S.players.map((p) => `<div class="lp" style="--c:${p.color}"><span class="tk">${p.emoji}</span>${p.name}${p.id === S.hostId ? ' ⭐' : ''}</div>`).join('');
       const st = S.settings;
       const T = D.THEMES[st.theme] || D.THEMES.italia;
-      const tg = (k, l) => chip(`${st[k] ? '✅' : '⬜'} ${l}`, `data-set="${k}"`, st[k]);
+      const FEAT = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions'];
+      const tally = (k) => { const R = D.RULES[k], t = (S.votes || {})[k] || { yes: 0, no: 0 }; const on = !!st[k]; return `<div class="vcell ${on ? 'on' : ''}"><span class="vi">${R.icon}</span><b>${R.title}</b><span class="vn">👍 ${t.yes} · 👎 ${t.no}</span><span class="vs">${on ? '✅ attiva' : '⬜ spenta'}</span></div>`; };
+      const DUR = { 0: 'senza limite', 20: '20 giri', 30: '30 giri', 50: '50 giri' };
       main.innerHTML = `
         <div class="lobbyBox"><div id="qr">${qrSvg}</div>
-          <div class="joinTxt">Oppure apri sul telefono:<br><b>${url.replace(/^https?:\/\//, '')}</b></div></div>
-        <div class="presets">${chip('🎉 Ultra', 'data-preset="ultra"')}${chip('📜 Classico', 'data-preset="classic"')}</div>
-        <div class="chips grid">
-          ${tg('speedDie', '🎲 Dado matto')}${tg('aces', '🃏 Assi')}${tg('events', '🎪 Eventi')}
-          ${tg('cheat', '🕵️ Furbetti')}${tg('freeParking', '🍹 Piatto')}${tg('auctions', '🔨 Aste')}
-          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`${st.showCash && !st.cheat ? '✅' : '⬜'} 👀 Soldi visibili`, 'data-set="showCash"', st.showCash && !st.cheat)}
+          <div class="joinTxt">Oppure apri sul telefono:<br><b>${url.replace(/^https?:\/\//, '')}</b><div class="votehint">🗳️ Ognuna vota le regole dal telefono: vince la maggioranza</div></div></div>
+        <div class="vgrid">${FEAT.map(tally).join('')}</div>
+        <div class="chips grid2">
+          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}
         </div>
         <div class="lobbyPlayers">${players || '<span style="opacity:.6;font-size:1.2em">Nessuna giocatrice ancora…</span>'}</div>
         <button class="startBtn" id="btnStart" ${S.players.length < 2 ? 'disabled' : ''}>Inizia la partita</button>`;
@@ -521,7 +524,7 @@
     }
     const cur = P(S.turn);
     turn.innerHTML = `<span style="color:var(--gold)">${cur.emoji} ${cur.name}</span>`;
-    hint.textContent = hintFor();
+    hint.textContent = hintFor() + (S.payoutCount ? '  ·  🏦 il banchiere sta contando i soldi…' : '');
     let html = '';
     if (S.phase === 'buy') {
       html = deedHTML(S.buy.idx);
@@ -590,6 +593,20 @@
     }
   }
 
+  // ripasso delle regole a inizio partita
+  let introFor = null, introTimer = null;
+  function showIntro() {
+    const st = S.settings;
+    const on = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions'].filter((k) => st[k]);
+    const el = $('#intro');
+    if (!el) return;
+    el.innerHTML = `<div class="ibox"><h2>🎉 Le regole di stasera</h2>
+      <div class="igrid">${on.length ? on.map((k) => `<div class="icell"><b>${D.RULES[k].icon} ${D.RULES[k].title}</b><span>${D.RULES[k].long.join(' ')}</span></div>`).join('') : '<div class="icell"><b>📜 Regole classiche</b><span>Niente novità: Monopoly come sempre.</span></div>'}</div>
+      <div class="ifoot">${st.maxRounds ? `⏱️ Si gioca ${st.maxRounds} giri: vince chi ha più patrimonio. ` : ''}Dal telefono, il tasto ❓ spiega tutto. <i>(tocca per iniziare)</i></div></div>`;
+    el.classList.add('show');
+    clearTimeout(introTimer);
+    introTimer = setTimeout(() => el.classList.remove('show'), 25000);
+  }
   function onState(s) {
     const firstTime = S === null;
     const prevStatus = S ? S.status : null;
@@ -622,6 +639,7 @@
       lastFxId = fx[fx.length - 1].id;
       if (!firstTime) fx.forEach((f, i) => setTimeout(() => floatMoney(f), 1700 + i * 250));
     }
+    if (s.status === 'playing' && s.gameId && introFor !== s.gameId) { introFor = s.gameId; if (!firstTime || s.turnCount === 0) showIntro(); }
     if (prevStatus && prevStatus !== 'playing' && s.status === 'playing') { sfx('start'); burst(innerWidth / 2, innerHeight / 3, 60, 8); }
     if (prevStatus === 'playing' && s.status === 'ended') { sfx('win'); rain(5000); }
     render();
@@ -629,6 +647,7 @@
 
   // ---------- eventi dell'interfaccia ----------
   document.addEventListener('click', async (e) => {
+    if (e.target.closest('#intro')) { $('#intro').classList.remove('show'); return; }
     const t = e.target.closest('button');
     if (!t) return;
     if (t.id === 'btnStart') { const r = await post('/api/board', { type: 'start' }); if (!r.ok) alert(r.error); }
@@ -636,6 +655,7 @@
     if (t.dataset.set && S) {
       const k = t.dataset.set;
       if (k === 'startCash') { const opts = [1000, 1500, 2000, 3000]; post('/api/board', { type: 'settings', startCash: opts[(opts.indexOf(S.settings.startCash) + 1) % opts.length] }); }
+      else if (k === 'maxRounds') { const o = [0, 20, 30, 50]; post('/api/board', { type: 'settings', maxRounds: o[(o.indexOf(S.settings.maxRounds) + 1) % o.length] }); }
       else if (k === 'theme') post('/api/board', { type: 'settings', theme: THEME_KEYS[(THEME_KEYS.indexOf(S.settings.theme) + 1) % THEME_KEYS.length] });
       else post('/api/board', { type: 'settings', [k]: !S.settings[k] });
     }

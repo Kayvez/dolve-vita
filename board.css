@@ -234,3 +234,17 @@ html, body {
 @keyframes rise2 { 0% { transform: translateY(.6em); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-1.6em); opacity: 0; } }
 .pl .xtra { margin-left: .2em; }
 .pl .badge { font-size: 15px; letter-spacing: .05em; }
+
+.votehint { margin-top: .5em; font-size: .95em; opacity: .85; }
+.vgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4em; width: 96%; margin-top: .7em; }
+.vcell { background: rgba(255,255,255,.1); border-radius: .7em; padding: .35em .3em; display: flex; flex-direction: column; align-items: center; line-height: 1.15; border: .12em solid transparent; }
+.vcell.on { background: rgba(80,200,120,.22); border-color: rgba(120,230,150,.7); }
+.vcell .vi { font-size: 1.6em; } .vcell b { font-size: 1.02em; } .vcell .vn { font-size: .95em; opacity: .9; } .vcell .vs { font-size: .9em; font-weight: 700; }
+.chips.grid2 { display: flex; gap: .5em; justify-content: center; margin-top: .6em; }
+#intro { position: absolute; inset: 0; z-index: 12; background: rgba(8,16,28,.94); display: none; align-items: center; justify-content: center; padding: 1.4em; cursor: pointer; }
+#intro.show { display: flex; animation: sumpop .45s cubic-bezier(.2,1.4,.4,1); }
+.ibox { text-align: center; width: 100%; } .ibox h2 { margin: 0 0 .5em; font-size: 2.2em; color: var(--gold); }
+.igrid { display: grid; grid-template-columns: 1fr 1fr; gap: .6em; text-align: left; }
+.icell { background: rgba(255,255,255,.1); border-radius: .8em; padding: .6em .8em; font-size: 1em; line-height: 1.3; }
+.icell b { display: block; font-size: 1.2em; color: var(--gold); margin-bottom: .15em; }
+.ifoot { margin-top: .9em; opacity: .85; font-size: 1.05em; }

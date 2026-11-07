@@ -115,3 +115,26 @@ nav .bd { position: absolute; top: 4px; left: 58%; background: var(--red); color
 .sqgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 60vh; overflow-y: auto; }
 .chip.sqb { display: flex; align-items: center; gap: 6px; text-align: left; font-size: 14px; padding: 8px 10px; border-radius: 12px; }
 .chip.sqb i { width: 10px; height: 22px; border-radius: 3px; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.3); }
+
+.vrule { border-top: 1px solid #e3e8ee; padding: 10px 0 6px; }
+.vt { display: flex; gap: 10px; align-items: center; }
+.vt .vi { font-size: 26px; }
+.vt b { display: block; font-size: 16px; } .vt small { color: var(--muted); font-size: 13px; line-height: 1.2; display: block; }
+.vt > div { flex: 1; }
+.info { background: #eef2f6; border-radius: 50%; width: 32px; height: 32px; font-size: 14px; color: #456; flex: 0 0 auto; }
+.rdet { background: #f5f8fb; border-radius: 10px; padding: 4px 10px; margin: 8px 0 0; } .rdet p { font-size: 13px; margin: 6px 0; line-height: 1.35; }
+.vb { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.vote { background: #eef2f6; border-radius: 20px; padding: 8px 16px; font-size: 15px; font-weight: 700; color: var(--ink); border: 2px solid transparent; }
+.vote.on { background: #d9f5e5; border-color: var(--green); } .vote.on.no { background: #fbe0e0; border-color: var(--red); }
+.vr { font-size: 13px; color: var(--muted); margin-left: auto; } .vr.yes { color: var(--green); font-weight: 700; }
+.hq { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,.15); color: #fff; font-size: 18px; font-weight: 800; margin-left: auto; }
+.hq + .hbadges { margin-left: 8px; }
+.hrow .hbadges + .hcash { margin-left: 8px; }
+.modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.7); display: flex; align-items: flex-end; justify-content: center; }
+.mbox { background: #fff; width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto; border-radius: 22px 22px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+.mbox h2 { margin: 0 0 6px; } .mbox p { font-size: 15px; line-height: 1.4; margin: 6px 0; }
+.rl { background: #f5f8fb; border-radius: 12px; padding: 8px 12px; margin: 8px 0; } .rl p { font-size: 14px; margin: 4px 0; }
+.btn.off[data-act="why"] { pointer-events: auto; }
+
+.bankcard { border: 2px solid #e5b84b; }
+.payrow { border-top: 1px solid #e3e8ee; padding-top: 6px; margin-top: 6px; } .payrow small { font-weight: 400; opacity: .8; }

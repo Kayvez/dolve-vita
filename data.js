@@ -141,5 +141,31 @@
   const TOKENS = ['🚗', '🎩', '🐶', '🐱', '🚀', '👑', '🦄', '🍕', '🛵', '🍷', '🌸', '⚽'];
   const COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#d81b60', '#6d4c41'];
 
-  return { TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
+
+  // ---------- spiegazioni delle regole (usate da telefoni e tabellone) ----------
+  const BASICS = [
+    '🎲 Tira i dadi e muovi la pedina. Se arrivi su una proprietà libera puoi comprarla; se non la compri parte un\'asta.',
+    '💰 Se arrivi su una proprietà di un\'altra giocatrice, le paghi l\'affitto. Con tutto il colore e con le case l\'affitto sale.',
+    '🏠 Quando hai tutte le proprietà di un colore puoi costruire case e alberghi dalla scheda Proprietà.',
+    '🤝 Puoi scambiare soldi e proprietà con le altre in qualsiasi momento, dalla scheda Scambi.',
+    '🏁 Se finisci i soldi e non puoi pagare, esci dal gioco. Vince l\'ultima rimasta (o chi ha più patrimonio alla fine dei giri scelti).',
+  ];
+  const RULES = {
+    speedDie: { icon: '🎲', title: 'Dado matto', short: 'Un terzo dado arancione con effetti speciali.',
+      long: ['I numeri 1-2-3 si sommano ai due dadi normali.', '🃏 Jolly: dopo esserti mossa, corri alla prossima proprietà libera.', '🚌 Navetta: scegli se muoverti col primo dado, col secondo o con la somma.', '✨ Tris: se i due dadi sono uguali e il terzo è lo stesso numero, vai dove vuoi!'] },
+    aces: { icon: '🃏', title: 'Assi nella manica', short: 'Carte speciali da giocare nel tuo turno.',
+      long: ['Ne hai al massimo 3. Se ne pesca uno passando dalla Partenza o da certe carte.', '🛡️ Scudo, 🥷 Furto, ✖️2 Doppio affitto, ⏭️ Salta turno, 🔀 Cambio posto, 🎉 Festa a sorpresa, 🚀 Teletrasporto.', 'Si giocano dalla scheda Turno, nel proprio turno.'] },
+    events: { icon: '🎪', title: 'Eventi di città', short: 'A ogni giro cambia una regola per tutte.',
+      long: ['Esempi: Partenza d\'oro (si incassa il doppio), Saldi (-20%), Sciopero treni (le stazioni non incassano), Tregua (niente affitti), Festa di un colore (affitti doppi), Bonus €50 per tutte.', 'L\'evento attuale è sempre scritto sul tabellone.'] },
+    cheat: { icon: '🕵️', title: 'Furbetti', short: 'Si può barare di nascosto… e si può essere scoperte.',
+      long: ['Nel tuo turno puoi prendere €100 dalla banca di nascosto.', 'Le altre possono accusarti: se avevi barato paghi €200 a chi ti ha scoperta, se era un\'accusa a vuoto paga €50 lei a te.', 'I soldi di tutte restano segreti sul tabellone.'] },
+    banker: { icon: '🏦', title: 'Banchiere furbo', short: 'Uno di voi fa il banchiere e paga a mano… e può fregarvi.',
+      long: ['A sorte uno diventa banchiere (gioca anche lui). I soldi della banca (Partenza e carte) li paga lui a mano.', 'Può dare tutto, tre quarti, metà o niente: quello che trattiene lo tiene per sé, di nascosto.', 'Se sospetti di aver ricevuto meno, accusalo: se ha davvero trattenuto, restituisce il doppio; se era onesto, paghi €50 tu. Una accusa a giro.', 'I soldi di tutte restano segreti sul tabellone.'] },
+    freeParking: { icon: '🍹', title: 'Piatto dell\'aperitivo', short: 'Tasse e multe finiscono al centro.',
+      long: ['Chi si ferma sulla Pausa Aperitivo si prende tutto il piatto.'] },
+    auctions: { icon: '🔨', title: 'Aste', short: 'Se non compri, la proprietà va all\'asta.',
+      long: ['Tutte possono rilanciare (+10, +50, +100). Vince l\'offerta più alta.'] },
+  };
+
+  return { BASICS, RULES, TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
 });

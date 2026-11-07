@@ -74,3 +74,12 @@ Sul tabellone o dal telefono di chi ha creato la partita: **🎉 Ultra** (tutte 
 - **🗺️ Temi**: Italia, Giro del mondo, Gola (cambiano solo i nomi delle caselle).
 - Carte Fortuna/Sorpresa nuove (Robin Hood, colpo grosso, cambio posto…).
 - Grafica nuova: pedine che saltano casella per casella, dadi grandi, soldi che volano, coriandoli, annunci a tutto schermo.
+
+## Voto delle regole e guida (2.1)
+- Appena entra, ogni giocatrice vede le regole spiegate (tasto ℹ︎) e vota 👍/👎. **Vince la maggioranza**; in caso di pareggio decide chi ha creato la partita ⭐.
+- Chi ha creato la partita sceglie anche: soldi iniziali, tema e **durata** (senza limite, 20, 30 o 50 giri: alla fine vince il patrimonio più alto).
+- All'inizio compare un **ripasso delle regole di stasera** su tabellone e telefoni. Il tasto **?** in alto sul telefono apre sempre la guida.
+- I bottoni grigi (costruisci, ipoteca…) se toccati dicono perché non si può.
+
+## Banchiere furbo (2.2, regola votabile)
+A sorte uno diventa banchiere (gioca anche lui). I soldi che la banca deve dare (Partenza, carte) li paga lui dal telefono: **Tutto, ¾, metà o niente**. Quello che trattiene lo tiene per sé, di nascosto. Chi sospetta può **accusarlo** (una volta a giro): se aveva trattenuto, restituisce il doppio; se era onesto, l'accusatrice paga €50. I pagamenti non gestiti a fine turno arrivano interi. Con questa regola i soldi di tutte sono segreti sul tabellone.

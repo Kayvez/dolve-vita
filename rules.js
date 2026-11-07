@@ -409,4 +409,65 @@ t('carte nuove: furto da carta, scambio posto', () => {
   assert.strictEqual(a.cash, 1600);
 });
 
+t('voto delle regole: maggioranza, pareggio e durata', () => {
+  queue = [];
+  const g = new Game(rng);
+  g.setSettings({ preset: 'classic' });
+  const a = g.join('Anna', '🚗'), b = g.join('Bea', '🎩'), c = g.join('Chiara', '🐶');
+  assert.strictEqual(g.settings.aces, false);
+  g.act(b.id, { type: 'vote', key: 'aces', value: true });
+  assert.strictEqual(g.settings.aces, false); // 1 a 2
+  g.act(c.id, { type: 'vote', key: 'aces', value: true });
+  assert.strictEqual(g.settings.aces, true);  // 2 a 1
+  g.act(c.id, { type: 'vote', preset: 'classic' });
+  assert.strictEqual(g.settings.aces, false);
+  const d = g.join('Dora', '🐱');
+  g.act(b.id, { type: 'vote', key: 'events', value: true });
+  g.act(d.id, { type: 'vote', key: 'events', value: true });
+  assert.strictEqual(g.settings.events, false); // 2 a 2: decide chi ha creato la partita (Anna, no)
+});
+
+t('durata: dopo N giri vince il patrimonio più alto', () => {
+  const g = newGame(3);
+  g.settings.maxRounds = 20;
+  g.round = 20; g.roundTurns = 2; g.cur.cash = 5000;
+  g.phase = 'action'; g.act(g.cur.id, { type: 'endTurn' });
+  assert.strictEqual(g.status, 'ended');
+  assert.ok(g.winner);
+});
+
+t('perms: i bottoni grigi hanno un motivo', () => {
+  const g = newGame(2);
+  const p = g.players[0]; give(g, p, 1);
+  const v = g.view(p.id);
+  assert.ok(v.perms[1].why.build);
+});
+
+t('banchiere furbo: paga a mano, trattiene, accusa giusta e sbagliata', () => {
+  const g = newUltra(3, { banker: true });
+  const b = g.banker();
+  const [x, y] = g.players.filter((q) => q.id !== b.id);
+  g.bankPay(x, 200, 'Partenza');
+  assert.strictEqual(x.cash, 1500);              // non ancora pagata
+  assert.strictEqual(g.view(x.id).incoming[0].amount, 200);
+  assert.ok(!g.act(x.id, { type: 'payBanker', id: g.payouts[0].id, pct: 100 }).ok); // solo il banchiere
+  const bank0 = b.cash;
+  assert.ok(g.act(b.id, { type: 'payBanker', id: g.payouts[0].id, pct: 50 }).ok);
+  assert.strictEqual(x.cash, 1600); assert.strictEqual(b.cash, bank0 + 100);
+  g.act(x.id, { type: 'accuseBanker' });          // giusta: il banchiere restituisce il doppio (200)
+  assert.strictEqual(x.cash, 1800); assert.strictEqual(b.cash, bank0 - 100);
+  assert.ok(!g.act(x.id, { type: 'accuseBanker' }).ok); // una a giro
+  g.act(y.id, { type: 'accuseBanker' });          // sbagliata: paga 50
+  assert.strictEqual(y.cash, 1450);
+});
+
+t('banchiere: i pagamenti non gestiti arrivano interi a fine turno', () => {
+  const g = newUltra(3, { banker: true });
+  const x = g.players.find((q) => q.id !== g.bankerId);
+  g.bankPay(x, 100, 'carta');
+  g.phase = 'action'; g.nextTurn();
+  assert.strictEqual(x.cash, 1600);
+  assert.strictEqual(g.payouts.length, 0);
+});
+
 console.log(`\n${passed} test passati`);

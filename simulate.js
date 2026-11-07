@@ -84,8 +84,15 @@ function randomExtras(g, rng, cur) {
   }
 }
 
+function bankerActs(g, rng) {
+  const b = g.banker();
+  if (b) for (const x of g.payouts.slice()) if (rng() < 0.7) g.act(b.id, { type: 'payBanker', id: x.id, pct: pick(rng, [100, 75, 50, 0]) });
+  for (const q of g.alive()) if (rng() < 0.05) { if (g.act(q.id, { type: 'accuseBanker' }).ok) stats.accuse++; }
+}
+
 function step(g, rng) {
   const cur = g.cur;
+  if (g.settings.banker) bankerActs(g, rng);
   switch (g.phase) {
     case 'roll': {
       if (cur.inJail) {
@@ -169,7 +176,7 @@ for (let n = 0; n < N; n++) {
   const seed = 1000 + n;
   const rng = mulberry32(seed);
   const g = new Game(rng);
-  g.setSettings({ preset: n % 4 === 3 ? 'classic' : 'ultra', theme: ['italia', 'mondo', 'gola'][n % 3] });
+  g.setSettings({ preset: n % 4 === 3 ? 'classic' : 'ultra', banker: n % 3 === 1, theme: ['italia', 'mondo', 'gola'][n % 3] });
   const np = 2 + (n % 7);
   for (let i = 0; i < np; i++) g.join('G' + i, TOKENS[i]);
   if (n % 3 === 0) g.settings.freeParking = !g.settings.freeParking;
