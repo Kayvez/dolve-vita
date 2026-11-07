@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const D = window.GAME_DATA;
+  const DEP = 1.8; // profondità delle caselle (in unità di larghezza)
   let BOARD = D.BOARDS[60].squares, GC = 17, GR = 15, curSize = 0;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -151,8 +152,8 @@
     if (sd && sd.parentNode !== $('#app')) $('#app').appendChild(sd); // salva l'elenco giocatrici prima di ricostruire
     const el = $('#board');
     el.innerHTML = '';
-    el.style.gridTemplateColumns = `1.5fr repeat(${GC - 2}, 1fr) 1.5fr`;
-    el.style.gridTemplateRows = `1.5fr repeat(${GR - 2}, 1fr) 1.5fr`;
+    el.style.gridTemplateColumns = `${DEP}fr repeat(${GC - 2}, 1fr) ${DEP}fr`;
+    el.style.gridTemplateRows = `${DEP}fr repeat(${GR - 2}, 1fr) ${DEP}fr`;
     BOARD.forEach((sq, i) => {
       const d = document.createElement('div');
       const [r, c] = gridPos(i);
@@ -207,11 +208,11 @@
     $('#app').classList.toggle('inside', inside);
     const availW = portrait ? w - 16 : inside ? w - 16 : w - 16 - 14 - 230;
     const availH = portrait ? h - (GC > 11 ? 230 : 190) : h - 16;
-    const u = Math.max(18, Math.min(availW / (GC + 1), availH / (GR + 1)));
+    const u = Math.max(18, Math.min(availW / (GC - 2 + 2 * DEP + 0.1), availH / (GR - 2 + 2 * DEP + 0.1)));
     const root = document.documentElement.style;
     root.setProperty('--u', u + 'px');
-    root.setProperty('--bw', (u * (GC + 1)) + 'px');
-    root.setProperty('--bh', (u * (GR + 1)) + 'px');
+    root.setProperty('--bw', (u * (GC - 2 + 2 * DEP + 0.1)) + 'px');
+    root.setProperty('--bh', (u * (GR - 2 + 2 * DEP + 0.1)) + 'px');
     sizeCanvas();
     requestAnimationFrame(() => { if (S) relayoutTokens(true); });
   }
@@ -641,7 +642,7 @@
     return info && info.persist === 'cloud' ? '<div class="pok">💾 Salvataggio sicuro attivo</div>' : '';
   }
   function renderLog() {
-    $('#log').innerHTML = S.log.slice(-6).map((l) => `<div>${l.text}</div>`).join('');
+    $('#log').innerHTML = S.log.slice(-4).map((l) => `<div>${l.text}</div>`).join('');
   }
 
   let cardTimer = null;
@@ -664,6 +665,7 @@
   }
 
   function render() {
+    $('#app').classList.toggle('lobby', S.status === 'lobby');
     renderSquares();
     renderPlayers();
     renderCenter();

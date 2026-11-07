@@ -294,3 +294,9 @@ html, body {
 #app.inside #title { font-size: 2.4em; }
 #app.inside #subtitle { margin-bottom: .3em; }
 #app.inside #log { height: 5.6em; }
+
+/* sala d'attesa: tutto centrato, niente elenco laterale né registro */
+#app.lobby #cLeft { justify-content: center; }
+#app.lobby #center #players, #app.lobby #log, #app.lobby #diceArea, #app.lobby #turn, #app.lobby #hint { display: none; }
+#app.lobby #center #side { position: absolute; right: .8em; bottom: .6em; width: auto; margin: 0; z-index: 3; }
+#app.lobby #center #tools { flex-wrap: nowrap; }
