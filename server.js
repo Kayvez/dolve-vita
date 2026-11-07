@@ -22,32 +22,71 @@ const MIME = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
 };
 
-// ---------- stato ----------
-let game = new Game();
-try {
-  if (fs.existsSync(DATA_FILE)) {
-    const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    if (saved && saved.status && saved.status !== 'ended') {
-      game = Game.fromJSON(saved);
-      console.log(`Partita ripresa dal salvataggio (${game.players.length} giocatori, stato: ${game.status}).`);
-    }
-  }
-} catch (e) {
-  console.log('Salvataggio non leggibile, parto da zero.', e.message);
+// ---------- stato e salvataggio ----------
+// Salvataggio: sempre su file; in più, se configurato, su Upstash Redis (gratis) così la partita
+// sopravvive ai riavvii di Render. Servono due variabili d'ambiente: UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN.
+const REMOTE_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
+const REMOTE_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const REMOTE_KEY = 'dolcevita:state';
+const remoteOn = !!(REMOTE_URL && REMOTE_TOKEN);
+let lastSaveOk = null;
+
+async function remote(cmd, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms || 4000);
+  try {
+    const r = await fetch(REMOTE_URL, { method: 'POST', headers: { Authorization: 'Bearer ' + REMOTE_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(cmd), signal: ctl.signal });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    return j.result;
+  } finally { clearTimeout(t); }
 }
 
-let saveTimer = null;
-function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-      const tmp = DATA_FILE + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify(game));
-      fs.renameSync(tmp, DATA_FILE);
-    } catch (e) { console.log('Impossibile salvare:', e.message); }
-  }, 150);
+let game = new Game();
+function adopt(saved, from) {
+  if (saved && saved.status && saved.status !== 'ended') {
+    game = Game.fromJSON(saved);
+    console.log(`Partita ripresa (${from}): ${game.players.length} giocatrici, stato ${game.status}.`);
+    return true;
+  }
+  return false;
 }
+async function loadState() {
+  let got = false;
+  if (remoteOn) {
+    try {
+      const raw = await remote(['GET', REMOTE_KEY], 5000);
+      if (raw) got = adopt(JSON.parse(raw), 'cloud');
+    } catch (e) { console.log('Cloud non raggiungibile all\'avvio:', e.message); }
+  }
+  if (!got) {
+    try { if (fs.existsSync(DATA_FILE)) got = adopt(JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')), 'file'); } catch (e) { console.log('Salvataggio su file non leggibile.', e.message); }
+  }
+  if (!got) console.log('Nessuna partita da riprendere: si parte da zero.');
+}
+
+function writeFileState(txt) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = DATA_FILE + '.tmp';
+    fs.writeFileSync(tmp, txt);
+    fs.renameSync(tmp, DATA_FILE);
+    return true;
+  } catch (e) { console.log('Impossibile salvare su file:', e.message); return false; }
+}
+let saveTimer = null, saving = false, dirty = false;
+async function flush() {
+  if (saving) { dirty = true; return; }
+  saving = true;
+  try {
+    const txt = JSON.stringify(game);
+    const f = writeFileState(txt);
+    let r = true;
+    if (remoteOn) { try { await remote(['SET', REMOTE_KEY, txt]); } catch (e) { r = false; console.log('Salvataggio cloud fallito:', e.message); } }
+    lastSaveOk = { at: Date.now(), cloud: remoteOn ? r : null, file: f };
+  } finally { saving = false; if (dirty) { dirty = false; flush(); } }
+}
+function save() { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 250); }
 
 // ---------- client collegati (Server-Sent Events) ----------
 const clients = new Set(); // { res, pid|null }
@@ -56,10 +95,45 @@ function connectedIds() {
   for (const c of clients) if (c.pid) s.add(c.pid);
   return s;
 }
+let autoAt = 0;
 function push(c, connected) {
-  try { c.res.write('data: ' + JSON.stringify(game.view(c.pid, connected)) + '\n\n'); } catch (e) { /* chiuso */ }
+  try {
+    const v = game.view(c.pid, connected);
+    v.autoLeft = autoAt ? Math.max(0, autoAt - Date.now()) : 0;
+    c.res.write('data: ' + JSON.stringify(v) + '\n\n');
+  } catch (e) { /* chiuso */ }
+}
+
+// fine turno automatico: dopo qualche secondo in cui nessuno fa nulla, il turno passa da solo
+let autoTimer = null, autoKey = '', lastDice = -1, lastAutoLog = 0;
+function scheduleAuto() {
+  const g = game;
+  const ok = g.status === 'playing' && g.phase === 'action' && g.settings.autoEnd && !g.hold && g.cur && !g.cur.bankrupt && !g.debts.length;
+  if (!ok) { clearTimeout(autoTimer); autoTimer = null; autoKey = ''; autoAt = 0; return; }
+  const key = `${g.turnCount}:${g.logSeq}:${g.phase}`;
+  if (key === autoKey) return;
+  autoKey = key;
+  clearTimeout(autoTimer);
+  const rolled = g.dice.seq !== lastDice;
+  lastDice = g.dice.seq;
+  // dopo un lancio l'iPad deve avere il tempo di animare dadi e pedina
+  // ogni annuncio a tutto schermo (affitti, multe, eventi, carte...) ha bisogno di qualche secondo per essere letto
+  const BIG = ['rent', 'tax', 'go', 'notice', 'card', 'ace', 'jail', 'event', 'cheat', 'pay', 'bankrupt'];
+  const bigNew = g.log.filter((l) => l.id > lastAutoLog && BIG.includes(l.kind)).length;
+  lastAutoLog = g.logSeq;
+  const delay = (rolled ? 7500 + 230 * (g.dice.d1 + g.dice.d2 + (typeof g.dice.d3 === 'number' ? g.dice.d3 : 0)) : 4500) + Math.min(3, bigNew) * 3500;
+  autoAt = Date.now() + delay;
+  autoTimer = setTimeout(() => {
+    autoTimer = null;
+    const cur = game.cur;
+    if (game.status === 'playing' && game.phase === 'action' && !game.hold && cur && `${game.turnCount}:${game.logSeq}:${game.phase}` === autoKey) {
+      game.act(cur.id, { type: 'endTurn' });
+      broadcast();
+    }
+  }, delay);
 }
 function broadcast() {
+  scheduleAuto();
   const connected = connectedIds();
   for (const c of clients) push(c, connected);
   save();
@@ -98,7 +172,7 @@ function json(res, code, obj) {
 async function handleApi(req, res, url) {
   const route = url.pathname;
   if (req.method === 'GET' && route === '/api/info') {
-    return json(res, 200, { title: TITLE, port: PORT, addresses: lanAddresses() });
+    return json(res, 200, { title: TITLE, port: PORT, addresses: lanAddresses(), persist: remoteOn ? (lastSaveOk && lastSaveOk.cloud === false ? 'cloud-error' : 'cloud') : 'file' });
   }
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Metodo non valido' });
   let body;
@@ -200,7 +274,11 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, url);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+async function main() {
+  await loadState();
+  server.listen(PORT, '0.0.0.0', onListen);
+}
+function onListen() {
   console.log(`\n  ${TITLE} è pronto!\n`);
   console.log('  Sull\'iPad (il tabellone) apri:');
   const addrs = lanAddresses();
@@ -208,8 +286,28 @@ server.listen(PORT, '0.0.0.0', () => {
   else console.log(`     http://localhost:${PORT}/board`);
   console.log('\n  Le amiche scansionano il QR code che compare sul tabellone.');
   console.log('  Per fermare il gioco premi Ctrl+C.\n');
-});
+  if (!remoteOn) console.log('  (Salvataggio solo su questo computer: va benissimo in locale.)\n');
+}
 
-const bye = () => { try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(DATA_FILE, JSON.stringify(game)); } catch (e) { /* */ } process.exit(0); };
+let leaving = false;
+async function bye() {
+  if (leaving) return;
+  leaving = true;
+  try {
+    const txt = JSON.stringify(game);
+    writeFileState(txt);
+    if (remoteOn) await remote(['SET', REMOTE_KEY, txt], 4000);
+  } catch (e) { /* */ }
+  process.exit(0);
+}
 process.on('SIGINT', bye);
 process.on('SIGTERM', bye);
+// un errore imprevisto non deve mai far cadere il server (e quindi la partita)
+process.on('uncaughtException', (e) => console.error('Errore imprevisto:', e));
+process.on('unhandledRejection', (e) => console.error('Promessa rifiutata:', e));
+
+// su Render gratis il servizio si addormenta dopo 15 minuti senza visite: durante la partita lo teniamo sveglio
+const SELF = process.env.RENDER_EXTERNAL_URL;
+if (SELF) setInterval(() => { if (game.status === 'playing') fetch(SELF + '/api/info').catch(() => {}); }, 8 * 60 * 1000);
+
+main();

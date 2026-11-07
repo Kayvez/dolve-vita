@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 let DATA;
 try { DATA = require('./public/shared/data.js'); } catch (e) { DATA = require('./data.js'); } // funziona anche con i file tutti nella stessa cartella
-const { TITLE, BOARD, CARDS, ACES, EVENTS, THEMES, GROUP_NAMES, TOKENS, COLORS } = DATA;
+const { TITLE, BOARD, BOARDS, CARDS, ACES, EVENTS, THEMES, GROUP_NAMES, TOKENS, COLORS } = DATA;
 
 class GameError extends Error {}
 const fail = (m) => { throw new GameError(m); };
@@ -17,6 +17,7 @@ BOARD.forEach((sq, i) => {
   if (sq.type === 'station') STATIONS.push(i);
   if (sq.type === 'util') UTILS.push(i);
 });
+const DECK_NAMES = { fortuna: 'Fortuna', sorpresa: 'Sorpresa', imprevisto: 'Imprevisto' };
 const MAX_HOUSES = 32;
 const MAX_HOTELS = 12;
 const GO_BONUS = 200;
@@ -29,7 +30,7 @@ const PRESETS = {
   ultra: { freeParking: true, auctions: true, speedDie: true, aces: true, events: true, cheat: false, banker: false },
 };
 const FEATURES = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions']; // regole su cui si vota
-const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', maxRounds: 0, ...PRESETS.ultra };
+const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', maxRounds: 0, autoEnd: true, boardSize: 60, ...PRESETS.ultra };
 
 function shuffle(arr, rng) {
   const a = arr.slice();
@@ -52,8 +53,7 @@ class Game {
     this.gameId = '';
     this.settings = { ...DEFAULT_SETTINGS };
     this.players = [];
-    this.props = {};
-    BOARD.forEach((sq, i) => { if (isOwnable(sq)) this.props[i] = { owner: null, houses: 0, mortgaged: false }; });
+    this.setBoard(this.settings.boardSize);
     this.hostId = null;
     this.turnIdx = 0;
     this.phase = 'lobby'; // lobby | roll | buy | auction | action | debt | ended
@@ -70,6 +70,7 @@ class Game {
     this.accused = [];
     this.fx = [];
     this.fxSeq = 0;
+    this.hold = false;       // chi sta giocando ha messo in pausa il fine turno automatico
     this.bankerId = null;    // chi fa il banchiere (regola Banchiere furbo)
     this.payouts = [];       // pagamenti della banca in attesa del banchiere
     this.payoutSeq = 0;
@@ -83,6 +84,9 @@ class Game {
     this.log = [];
     this.logSeq = 0;
     this.card = null;
+    this.notice = null;
+    this.noticeSeq = 0;
+    this.sale = null;        // offerta diretta di una proprietà a una giocatrice
     this.cardSeq = 0;
     this.pot = 0;
     this.winner = null;
@@ -91,19 +95,46 @@ class Game {
     this.decks = {
       fortuna: shuffle(CARDS.fortuna.map((_, i) => i), this.rng),
       sorpresa: shuffle(CARDS.sorpresa.map((_, i) => i), this.rng),
+      imprevisto: shuffle(CARDS.imprevisto.map((_, i) => i), this.rng),
     };
+  }
+
+  // tabellone: 40 o 60 caselle (le proprietà si azzerano solo se chiesto)
+  setBoard(size, keepProps) {
+    const b = BOARDS[size] || BOARDS[60];
+    this.size = b.size;
+    this.BOARD = b.squares;
+    this.cols = b.cols;
+    this.rows = b.rows;
+    this.N = b.squares.length;
+    this.jailIdx = b.squares.findIndex((q) => q.type === 'jail');
+    this.GROUPS = {};
+    this.STATIONS = [];
+    this.UTILS = [];
+    this.BOARD.forEach((sq, i) => {
+      if (sq.type === 'street') (this.GROUPS[sq.group] = this.GROUPS[sq.group] || []).push(i);
+      if (sq.type === 'station') this.STATIONS.push(i);
+      if (sq.type === 'util') this.UTILS.push(i);
+    });
+    if (!keepProps) {
+      this.props = {};
+      this.BOARD.forEach((sq, i) => { if (isOwnable(sq)) this.props[i] = { owner: null, houses: 0, mortgaged: false }; });
+    }
   }
 
   // ---------- persistenza ----------
   toJSON() {
     const o = {};
-    for (const k of Object.keys(this)) if (k !== 'rng') o[k] = this[k];
+    const skip = ['rng', 'BOARD', 'GROUPS', 'STATIONS', 'UTILS', 'N', 'cols', 'rows', 'jailIdx', 'size'];
+    for (const k of Object.keys(this)) if (!skip.includes(k)) o[k] = this[k];
     return o;
   }
   static fromJSON(obj, rng) {
     const g = new Game(rng);
     Object.assign(g, obj);
-    g.settings = { ...DEFAULT_SETTINGS, ...(obj.settings || {}) };
+    g.settings = { ...DEFAULT_SETTINGS, boardSize: 40, ...(obj.settings || {}) };
+    g.setBoard(g.settings.boardSize, true);
+    if (!g.decks.imprevisto) g.decks.imprevisto = shuffle(CARDS.imprevisto.map((_, i) => i), g.rng);
     for (const p of g.players) {
       if (!p.aces) p.aces = [];
       if (p.skip === undefined) p.skip = 0;
@@ -124,13 +155,13 @@ class Game {
     this.log.push({ id: ++this.logSeq, kind, text });
     if (this.log.length > 80) this.log.shift();
   }
-  nm(i) { return DATA.nameOf(this.settings.theme, i); }
+  nm(i) { return DATA.nameOf(this.settings.theme, this.BOARD[i]); }
   priceOf(i) {
-    const base = BOARD[i].price;
+    const base = this.BOARD[i].price;
     return this.event && this.event.key === 'saldi' ? Math.round((base * 0.8) / 10) * 10 : base;
   }
   owned(pid) { return Object.keys(this.props).map(Number).filter((i) => this.props[i].owner === pid); }
-  ownsGroup(pid, group) { return GROUPS[group].every((i) => this.props[i].owner === pid); }
+  ownsGroup(pid, group) { return this.GROUPS[group].every((i) => this.props[i].owner === pid); }
   housesUsed() { let n = 0; for (const i in this.props) { const h = this.props[i].houses; if (h > 0 && h < 5) n += h; } return n; }
   hotelsUsed() { let n = 0; for (const i in this.props) if (this.props[i].houses === 5) n++; return n; }
   housesLeft() { return MAX_HOUSES - this.housesUsed(); }
@@ -138,7 +169,7 @@ class Game {
   netWorth(p) {
     let w = p.cash;
     for (const i of this.owned(p.id)) {
-      const sq = BOARD[i], pr = this.props[i];
+      const sq = this.BOARD[i], pr = this.props[i];
       w += pr.mortgaged ? sq.price / 2 : sq.price;
       if (sq.type === 'street') w += pr.houses * sq.houseCost;
     }
@@ -189,11 +220,17 @@ class Game {
       if (!PRESETS[s.preset]) fail('Preset non valido.');
       Object.assign(this.settings, PRESETS[s.preset]);
     }
+    if (s.boardSize !== undefined) {
+      const v = Number(s.boardSize);
+      if (![40, 60].includes(v)) fail('Tabellone non valido.');
+      this.settings.boardSize = v;
+      this.setBoard(v);
+    }
     if (s.theme !== undefined) {
       if (!THEMES[s.theme]) fail('Tema non valido.');
       this.settings.theme = s.theme;
     }
-    for (const k of ['freeParking', 'showCash', 'auctions', 'speedDie', 'aces', 'events', 'cheat', 'banker']) if (s[k] !== undefined) this.settings[k] = !!s[k];
+    for (const k of ['freeParking', 'showCash', 'auctions', 'speedDie', 'aces', 'events', 'cheat', 'banker', 'autoEnd']) if (s[k] !== undefined) this.settings[k] = !!s[k];
     if (s.maxRounds !== undefined) {
       const v = Number(s.maxRounds);
       if (![0, 20, 30, 50].includes(v)) fail('Durata non valida.');
@@ -339,7 +376,7 @@ class Game {
     this.needTurn(p, 'choose');
     const c = this.choice;
     if (!c || c.kind !== 'tris') fail('Nessuna scelta da fare.');
-    if (!Number.isInteger(idx) || idx < 0 || idx > 39) fail('Casella non valida.');
+    if (!Number.isInteger(idx) || idx < 0 || idx >= this.N) fail('Casella non valida.');
     if (idx === p.pos) fail('Sei già lì.');
     this.choice = null;
     this.teleport(p, idx);
@@ -355,7 +392,7 @@ class Game {
   releaseFromJail(p) { p.inJail = false; p.jailTurns = 0; }
 
   sendToJail(p) {
-    p.pos = 10;
+    p.pos = this.jailIdx;
     p.inJail = true;
     p.jailTurns = 0;
     this.doubles = 0;
@@ -365,7 +402,7 @@ class Game {
 
   movePlayer(p, steps) {
     const old = p.pos;
-    const np = (((old + steps) % 40) + 40) % 40;
+    const np = (((old + steps) % this.N) + this.N) % this.N;
     if (steps > 0 && np < old) this.passGo(p);
     p.pos = np;
     this.land(p, {});
@@ -525,7 +562,7 @@ class Game {
         if (this.phase !== 'roll') fail('Il teletrasporto si gioca al posto del tiro.');
         if (p.inJail) fail('Sei in prigione.');
         const idx = Number(a.idx);
-        if (!Number.isInteger(idx) || idx < 0 || idx > 39 || idx === p.pos) fail('Casella non valida.');
+        if (!Number.isInteger(idx) || idx < 0 || idx >= this.N || idx === p.pos) fail('Casella non valida.');
         use();
         this.canRollAgain = false;
         this.teleport(p, idx);
@@ -539,7 +576,7 @@ class Game {
   doCheat(p) {
     if (!this.settings.cheat) fail('I furbetti non sono attivi.');
     this.needTurn(p);
-    if (this.phase !== 'roll' && this.phase !== 'action') fail('Non adesso.');
+    if (this.phase !== 'roll' || this.doubles > 0 || p.inJail) fail('Il furbetto si fa solo a inizio turno, prima di tirare i dadi.');
     if (this.cheatDone) fail('Hai già fatto il furbo in questo turno.');
     this.cheatDone = true;
     this.cheat = { pid: p.id };
@@ -564,26 +601,26 @@ class Game {
   }
 
   rentFor(idx, opts) {
-    const sq = BOARD[idx], pr = this.props[idx];
+    const sq = this.BOARD[idx], pr = this.props[idx];
     const ev = this.event ? this.event.key : null;
     if (ev === 'truce') return 0;
     if (sq.type === 'street') {
-      let r = pr.houses > 0 ? sq.rent[pr.houses] : sq.rent[0] * (this.ownsGroup(pr.owner, sq.group) ? 2 : 1);
+      let r = pr.houses >= 6 ? Math.round(sq.rent[5] * 1.6 / 10) * 10 : pr.houses > 0 ? sq.rent[pr.houses] : sq.rent[0] * (this.ownsGroup(pr.owner, sq.group) ? 2 : 1);
       if (ev === 'festa' && this.event.group === sq.group) r *= 2;
       return r;
     }
     if (sq.type === 'station') {
       if (ev === 'strike') return 0;
-      const n = STATIONS.filter((i) => this.props[i].owner === pr.owner).length;
+      const n = this.STATIONS.filter((i) => this.props[i].owner === pr.owner).length;
       return 25 * Math.pow(2, n - 1) * (opts.rentMult || 1);
     }
-    const n = UTILS.filter((i) => this.props[i].owner === pr.owner).length;
+    const n = this.UTILS.filter((i) => this.props[i].owner === pr.owner).length;
     const mult = opts.utilTen ? 10 : (n >= 2 ? 10 : 4);
     return mult * (this.dice.d1 + this.dice.d2);
   }
 
   land(p, opts) {
-    const sq = BOARD[p.pos];
+    const sq = this.BOARD[p.pos];
     this.phase = 'resolving';
     switch (sq.type) {
       case 'street': case 'station': case 'util': {
@@ -617,9 +654,28 @@ class Game {
       case 'gotojail':
         this.sendToJail(p);
         break;
-      case 'fortuna': case 'sorpresa':
+      case 'fortuna': case 'sorpresa': case 'imprevisto':
         this.drawCard(p, sq.type);
         return;
+      case 'casino': this.casino(p); break;
+      case 'wheel': this.wheel(p); break;
+      case 'market':
+        if (this.settings.aces) { this.giveAce(p); this.notify('🃏', 'Mercato degli Assi', `${p.name} compra un asso al mercato (gratis!)`, 'good', p.id); }
+        else { this.bankPay(p, 50, 'mercato'); this.notify('🃏', 'Mercato', `${p.name} vende qualcosa e incassa €50`, 'good', p.id); }
+        break;
+      case 'teleport':
+        this.notify('🌀', 'Teletrasporto!', `${p.name} entra nel portale…`, 'info', p.id);
+        this.randomJump(p);
+        return;
+      case 'relax':
+        p.skip += 1;
+        this.bankPay(p, 100, 'relax');
+        this.notify('🧖', 'Giornata di relax', `${p.name} si riposa: incassa €100 ma salta il prossimo turno`, 'info', p.id);
+        break;
+      case 'bonus':
+        this.bankPay(p, 100, 'premio');
+        this.notify('🏆', 'Premio di città', `${p.name} vince il premio: +€100`, 'good', p.id);
+        break;
       case 'parking':
         if (this.settings.freeParking && this.pot > 0) {
           p.cash += this.pot;
@@ -633,16 +689,66 @@ class Game {
     this.proceed();
   }
 
+  notify(icon, title, text, tone, pid) {
+    this.notice = { seq: ++this.noticeSeq, icon, title, text, tone: tone || 'info', pid: pid || null };
+    this.addLog('notice', `${icon} ${title}: ${text}`);
+  }
+
+  randomJump(p) {
+    const ok = [];
+    this.BOARD.forEach((q, i) => { if (i !== p.pos && !['jail', 'gotojail', 'teleport'].includes(q.type)) ok.push(i); });
+    const idx = ok[Math.floor(this.rng() * ok.length)];
+    p.pos = idx;
+    this.addLog('move', `🌀 ${p.emoji} ${p.name} compare a ${this.nm(idx)}`);
+    this.land(p, {});
+  }
+
+  casino(p) {
+    const d = this.die();
+    const gains = { 1: -150, 2: -50, 3: 0, 4: 50, 5: 150, 6: 300 };
+    const v = gains[d];
+    if (v < 0) {
+      this.debts.push({ pid: p.id, amount: -v, creditor: this.settings.freeParking ? 'pot' : 'bank', reason: 'casinò', kind: 'tax' });
+      this.notify('🎰', `Casinò: esce ${d}`, `${p.name} perde ${eur(-v)}!`, 'bad', p.id);
+    } else if (v > 0) {
+      this.bankPay(p, v, 'casinò');
+      this.notify('🎰', `Casinò: esce ${d}`, `${p.name} vince ${eur(v)}!`, 'good', p.id);
+    } else this.notify('🎰', `Casinò: esce ${d}`, `${p.name} pareggia, non succede nulla`, 'info', p.id);
+  }
+
+  wheel(p) {
+    const slots = ['c200', 'p100', 'c50', 'ace', 'shield', 'tele', 'skip', 'c300'];
+    const k = slots[Math.floor(this.rng() * slots.length)];
+    const nm = p.name;
+    switch (k) {
+      case 'c200': this.bankPay(p, 200, 'ruota'); this.notify('🎡', 'Ruota della fortuna', `${nm} vince €200!`, 'good', p.id); break;
+      case 'c300': this.bankPay(p, 300, 'ruota'); this.notify('🎡', 'Ruota della fortuna', `${nm} vince il super premio da €300!`, 'good', p.id); break;
+      case 'c50': this.bankPay(p, 50, 'ruota'); this.notify('🎡', 'Ruota della fortuna', `${nm} vince €50`, 'good', p.id); break;
+      case 'p100':
+        this.debts.push({ pid: p.id, amount: 100, creditor: this.settings.freeParking ? 'pot' : 'bank', reason: 'ruota', kind: 'tax' });
+        this.notify('🎡', 'Ruota della fortuna', `${nm} perde €100`, 'bad', p.id);
+        break;
+      case 'ace':
+        if (this.settings.aces) { this.giveAce(p); this.notify('🎡', 'Ruota della fortuna', `${nm} vince un asso!`, 'good', p.id); }
+        else { this.bankPay(p, 100, 'ruota'); this.notify('🎡', 'Ruota della fortuna', `${nm} vince €100`, 'good', p.id); }
+        break;
+      case 'shield': p.shield = true; this.notify('🎡', 'Ruota della fortuna', `${nm} vince uno scudo 🛡️`, 'good', p.id); break;
+      case 'skip': p.skip += 1; this.notify('🎡', 'Ruota della fortuna', `${nm} si gira male: salta il prossimo turno`, 'bad', p.id); break;
+      case 'tele': this.notify('🎡', 'Ruota della fortuna', `${nm} viene sparata altrove!`, 'info', p.id); this.randomJump(p); return;
+      default: break;
+    }
+  }
+
   drawCard(p, deckName) {
     const deck = this.decks[deckName];
     const id = deck.shift();
     const card = CARDS[deckName][id];
     if (card.fx === 'jailCard') p.jailCards.push({ deck: deckName, id });
     else deck.push(id);
-    const text = card.text.replace(/\{(\d+)\}/g, (m, n) => this.nm(Number(n)));
+    const text = card.text.replace(/\{(\w+)\}/g, (m, k) => DATA.nameOf(this.settings.theme, k));
     this.cardSeq++;
     this.card = { seq: this.cardSeq, deck: deckName, text, pid: p.id };
-    this.addLog('card', `${p.emoji} ${p.name} pesca (${deckName === 'fortuna' ? 'Fortuna' : 'Sorpresa'}): ${text}`);
+    this.addLog('card', `${p.emoji} ${p.name} pesca (${DECK_NAMES[deckName]}): ${text}`);
     const pot = this.settings.freeParking ? 'pot' : 'bank';
     switch (card.fx) {
       case 'collect':
@@ -652,17 +758,18 @@ class Game {
         this.debts.push({ pid: p.id, amount: card.amount, creditor: pot, reason: 'carta', kind: 'tax' });
         break;
       case 'moveTo': {
-        if (card.idx < p.pos) this.passGo(p);
-        p.pos = card.idx;
+        const to = this.BOARD.findIndex((q) => q.id === card.key);
+        if (to < p.pos) this.passGo(p);
+        p.pos = to;
         this.land(p, {});
         return;
       }
       case 'moveBy':
-        p.pos = (p.pos + card.n + 40) % 40;
+        p.pos = (p.pos + card.n + this.N) % this.N;
         this.land(p, {});
         return;
       case 'nearest': {
-        const list = card.kind === 'station' ? STATIONS : UTILS;
+        const list = card.kind === 'station' ? this.STATIONS : this.UTILS;
         let target = list.find((i) => i > p.pos);
         if (target === undefined) { target = list[0]; this.passGo(p); }
         p.pos = target;
@@ -708,11 +815,80 @@ class Game {
         let houses = 0, hotels = 0;
         for (const i of this.owned(p.id)) {
           const h = this.props[i].houses;
-          if (h === 5) hotels++; else houses += h;
+          if (h >= 5) hotels++; else houses += h;
         }
         const amount = houses * card.house + hotels * card.hotel;
         if (amount > 0) this.debts.push({ pid: p.id, amount, creditor: pot, reason: 'lavori', kind: 'tax' });
         else this.addLog('card', `${p.name} non ha immobili da riparare`);
+        break;
+      }
+      case 'giveShield': p.shield = true; this.notify('🛡️', 'Scudo!', `${p.name} riceve uno scudo`, 'good', p.id); break;
+      case 'giveX2': p.x2 = true; this.notify('✖️2', 'Doppio affitto', `${p.name} incasserà il doppio al prossimo affitto`, 'good', p.id); break;
+      case 'loseShield':
+        if (p.shield) { p.shield = false; this.notify('🛡️', 'Scudo rubato', `${p.name} perde lo scudo`, 'bad', p.id); }
+        else this.debts.push({ pid: p.id, amount: card.amount, creditor: pot, reason: 'carta', kind: 'tax' });
+        break;
+      case 'skipSelf': p.skip += 1; this.notify('😴', 'Turno saltato', `${p.name} salterà il prossimo turno`, 'bad', p.id); break;
+      case 'relaxCard': p.skip += 1; this.bankPay(p, card.amount, 'carta'); break;
+      case 'flu':
+        p.skip += 1;
+        this.debts.push({ pid: p.id, amount: card.amount, creditor: pot, reason: 'carta', kind: 'tax' });
+        break;
+      case 'extraRoll': if (!p.inJail) this.canRollAgain = true; break;
+      case 'toStart': p.pos = 0; this.land(p, {}); return;
+      case 'teleportRand': this.randomJump(p); return;
+      case 'goFree': {
+        for (let k = 1; k < this.N; k++) {
+          const idx = (p.pos + k) % this.N;
+          if (isOwnable(this.BOARD[idx]) && !this.props[idx].owner) { this.movePlayer(p, k); return; }
+        }
+        this.addLog('card', 'Non ci sono proprietà libere');
+        break;
+      }
+      case 'payAce':
+        this.debts.push({ pid: p.id, amount: card.amount, creditor: pot, reason: 'festa', kind: 'tax' });
+        if (this.settings.aces) this.giveAce(p);
+        break;
+      case 'collectPct': {
+        const a = Math.max(10, Math.floor((Math.max(0, p.cash) * card.pct) / 100 / 10) * 10);
+        this.bankPay(p, a, 'carta');
+        break;
+      }
+      case 'payPct': {
+        const a = Math.max(10, Math.floor((Math.max(0, p.cash) * card.pct) / 100 / 10) * 10);
+        this.debts.push({ pid: p.id, amount: a, creditor: pot, reason: 'carta', kind: 'tax' });
+        break;
+      }
+      case 'giveToPoorest': {
+        const others = this.alive().filter((q) => q.id !== p.id).sort((x, y) => x.cash - y.cash);
+        if (others.length) this.debts.push({ pid: p.id, amount: card.amount, creditor: others[0].id, reason: 'donazione', kind: 'gift' });
+        break;
+      }
+      case 'jailOther': {
+        const vs = this.alive().filter((q) => q.id !== p.id && !q.inJail);
+        if (!vs.length) break;
+        const q = vs[Math.floor(this.rng() * vs.length)];
+        if (this.attackOk(q)) {
+          q.pos = this.jailIdx; q.inJail = true; q.jailTurns = 0;
+          this.notify('👮', 'In prigione!', `${q.name} finisce in prigione per colpa di ${p.name}`, 'bad', q.id);
+        }
+        break;
+      }
+      case 'loseAce': {
+        if (p.aces.length) {
+          const k = Math.floor(this.rng() * p.aces.length);
+          p.aces.splice(k, 1);
+          this.notify('🥷', 'Ladri!', `${p.name} perde un asso`, 'bad', p.id);
+        } else this.debts.push({ pid: p.id, amount: card.amount, creditor: pot, reason: 'ladri', kind: 'tax' });
+        break;
+      }
+      case 'stormHouse': {
+        const list = this.owned(p.id).filter((i) => { const h = this.props[i].houses; return h > 0 && !(h === 5 && this.housesLeft() < 4) && !(h === 6 && this.hotelsLeft() <= 0); });
+        if (list.length) {
+          const i = list[Math.floor(this.rng() * list.length)];
+          this.props[i].houses--;
+          this.notify('🌩️', 'Danno!', `${p.name} perde un edificio a ${this.nm(i)}`, 'bad', p.id);
+        } else this.debts.push({ pid: p.id, amount: card.amount, creditor: pot, reason: 'danni', kind: 'tax' });
         break;
       }
       case 'collectEach':
@@ -772,9 +948,9 @@ class Game {
       if (c.type === 'jolly') {
         const p = this.cur;
         if (!p.inJail && !p.bankrupt) {
-          for (let k = 1; k < 40; k++) {
-            const idx = (p.pos + k) % 40;
-            if (isOwnable(BOARD[idx]) && !this.props[idx].owner) {
+          for (let k = 1; k < this.N; k++) {
+            const idx = (p.pos + k) % this.N;
+            if (isOwnable(this.BOARD[idx]) && !this.props[idx].owner) {
               this.addLog('move', `🃏 Jolly! ${p.name} corre fino a ${this.nm(idx)}`);
               this.movePlayer(p, k);
               return;
@@ -800,6 +976,7 @@ class Game {
     this.canRollAgain = false;
     this.cont = null;
     this.flushPayouts();
+    this.hold = false;
     this.choice = null;
     this.cheat = null;
     this.cheatDone = false;
@@ -832,7 +1009,7 @@ class Game {
     if (this.event && key === this.event.key) key = keys[(keys.indexOf(key) + 1) % keys.length];
     const ev = { key, ...EVENTS[key] };
     if (key === 'festa') {
-      const gs = Object.keys(GROUPS);
+      const gs = Object.keys(this.GROUPS);
       ev.group = gs[Math.floor(this.rng() * gs.length)];
       ev.text = ev.text.replace('{group}', GROUP_NAMES[ev.group].toLowerCase());
     }
@@ -855,9 +1032,50 @@ class Game {
 
   declineBuy(p) {
     this.needTurn(p, 'buy');
-    const sq = BOARD[p.pos];
+    const sq = this.BOARD[p.pos];
     if (this.settings.auctions) this.startAuction(p.pos);
     else { this.addLog('buy', `${p.name} non compra ${this.nm(p.pos)}`); this.proceed(); }
+  }
+
+  // Invece di comprare o fare l'asta: offro la proprietà a UNA giocatrice a un prezzo deciso da me
+  offerSale(p, toId, price) {
+    this.needTurn(p, 'buy');
+    const to = this.player(toId);
+    if (!to || to.bankrupt || to.id === p.id) fail('Scegli a chi offrirla.');
+    price = Math.floor(price);
+    if (!(price >= 0) || price > 5000) fail('Prezzo non valido.');
+    if (price > to.cash) fail(`${to.name} non ha tutti quei soldi.`);
+    this.sale = { idx: p.pos, from: p.id, to: to.id, price };
+    this.phase = 'sale';
+    this.addLog('sale', `🤝 ${p.name} offre ${this.nm(p.pos)} a ${to.name} per ${eur(price)}`);
+  }
+  saleAnswer(p, yes) {
+    const sl = this.sale;
+    if (this.phase !== 'sale' || !sl) fail('Nessuna offerta in corso.');
+    if (sl.to !== p.id) fail('L\'offerta non è per te.');
+    const seller = this.player(sl.from);
+    if (!yes) {
+      this.sale = null;
+      this.phase = 'buy';
+      this.addLog('sale', `${p.name} rifiuta l'offerta`);
+      return;
+    }
+    if (p.cash < sl.price) fail('Non hai abbastanza soldi.');
+    p.cash -= sl.price;
+    seller.cash += sl.price;
+    this.props[sl.idx].owner = p.id;
+    this.sale = null;
+    this.addLog('buy', `🤝 ${p.emoji} ${p.name} compra ${this.nm(sl.idx)} da ${seller.name} per ${eur(sl.price)}`);
+    this.notify('🤝', 'Affare fatto!', `${p.name} prende ${this.nm(sl.idx)} per ${eur(sl.price)}`, 'good', p.id);
+    this.proceed();
+  }
+  saleCancel(p) {
+    const sl = this.sale;
+    if (this.phase !== 'sale' || !sl) fail('Nessuna offerta in corso.');
+    if (sl.from !== p.id) fail('Solo chi ha fatto l\'offerta può ritirarla.');
+    this.sale = null;
+    this.phase = 'buy';
+    this.addLog('sale', `${p.name} ritira l'offerta`);
   }
 
   startAuction(idx) {
@@ -907,37 +1125,43 @@ class Game {
   }
 
   // ---------- costruzioni e ipoteche ----------
+  // costo del prossimo livello (o del livello 'from' se indicato): il Monumento costa il doppio
+  buildCost(idx, from) {
+    const sq = this.BOARD[idx], h = from === undefined ? this.props[idx].houses : from;
+    return h >= 5 ? sq.houseCost * 2 : sq.houseCost;
+  }
   whyNotBuild(p, idx) {
-    const sq = BOARD[idx], pr = this.props[idx];
+    const sq = this.BOARD[idx], pr = this.props[idx];
     if (!sq || sq.type !== 'street') return 'Qui non si può costruire.';
     if (pr.owner !== p.id) return 'Non è tua.';
     if (!this.ownsGroup(p.id, sq.group)) return 'Ti serve tutto il colore.';
-    const grp = GROUPS[sq.group];
+    const grp = this.GROUPS[sq.group];
     if (grp.some((i) => this.props[i].mortgaged)) return 'C\'è una proprietà ipotecata nel gruppo.';
-    if (pr.houses >= 5) return 'C\'è già l\'albergo.';
+    if (pr.houses >= 6) return 'C\'è già il Monumento!';
     if (pr.houses > Math.min(...grp.map((i) => this.props[i].houses))) return 'Costruisci in modo uniforme.';
-    if (pr.houses === 4 ? this.hotelsLeft() <= 0 : this.housesLeft() <= 0) return 'Finiti gli edifici in banca.';
-    if (p.cash < sq.houseCost) return 'Non hai abbastanza soldi.';
+    if (pr.houses < 5 && (pr.houses === 4 ? this.hotelsLeft() <= 0 : this.housesLeft() <= 0)) return 'Finiti gli edifici in banca.';
+    if (p.cash < this.buildCost(idx)) return 'Non hai abbastanza soldi.';
     return null;
   }
   whyNotSell(p, idx) {
-    const sq = BOARD[idx], pr = this.props[idx];
+    const sq = this.BOARD[idx], pr = this.props[idx];
     if (!sq || sq.type !== 'street' || pr.owner !== p.id) return 'Non puoi.';
     if (pr.houses <= 0) return 'Non ci sono edifici.';
-    const grp = GROUPS[sq.group];
+    const grp = this.GROUPS[sq.group];
     if (pr.houses < Math.max(...grp.map((i) => this.props[i].houses))) return 'Vendi in modo uniforme.';
+    if (pr.houses === 6 && this.hotelsLeft() <= 0) return 'Non ci sono alberghi in banca per sostituire il Monumento.';
     if (pr.houses === 5 && this.housesLeft() < 4) return 'Non ci sono abbastanza case in banca per sostituire l\'albergo.';
     return null;
   }
   whyNotMortgage(p, idx) {
-    const sq = BOARD[idx], pr = this.props[idx];
+    const sq = this.BOARD[idx], pr = this.props[idx];
     if (!pr || pr.owner !== p.id) return 'Non è tua.';
     if (pr.mortgaged) return 'È già ipotecata.';
-    if (sq.type === 'street' && GROUPS[sq.group].some((i) => this.props[i].houses > 0)) return 'Prima vendi gli edifici del colore.';
+    if (sq.type === 'street' && this.GROUPS[sq.group].some((i) => this.props[i].houses > 0)) return 'Prima vendi gli edifici del colore.';
     return null;
   }
   whyNotUnmortgage(p, idx) {
-    const sq = BOARD[idx], pr = this.props[idx];
+    const sq = this.BOARD[idx], pr = this.props[idx];
     if (!pr || pr.owner !== p.id) return 'Non è tua.';
     if (!pr.mortgaged) return 'Non è ipotecata.';
     if (p.cash < Math.ceil(sq.price * 0.55)) return 'Non hai abbastanza soldi.';
@@ -946,28 +1170,29 @@ class Game {
 
   build(p, idx) {
     const why = this.whyNotBuild(p, idx); if (why) fail(why);
-    const sq = BOARD[idx], pr = this.props[idx];
-    p.cash -= sq.houseCost;
+    const sq = this.BOARD[idx], pr = this.props[idx];
+    p.cash -= this.buildCost(idx);
     pr.houses++;
-    this.addLog('build', `${p.name} costruisce ${pr.houses === 5 ? 'un albergo' : 'una casa'} a ${this.nm(idx)}`);
+    this.addLog('build', `${p.name} costruisce ${pr.houses === 6 ? '🗽 il MONUMENTO' : pr.houses === 5 ? 'un albergo' : 'una casa'} a ${this.nm(idx)}`);
+    if (pr.houses === 6) this.notify('🗽', 'Monumento!', `${p.name} costruisce il Monumento a ${this.nm(idx)}: affitto altissimo!`, 'good', p.id);
   }
   sell(p, idx) {
     const why = this.whyNotSell(p, idx); if (why) fail(why);
-    const sq = BOARD[idx], pr = this.props[idx];
-    p.cash += sq.houseCost / 2;
+    const sq = this.BOARD[idx], pr = this.props[idx];
+    p.cash += Math.floor(this.buildCost(idx, pr.houses - 1) / 2);
     pr.houses--;
-    this.addLog('build', `${p.name} vende ${pr.houses === 4 ? 'l\'albergo' : 'una casa'} a ${this.nm(idx)}`);
+    this.addLog('build', `${p.name} vende ${pr.houses === 5 ? 'il Monumento' : pr.houses === 4 ? 'l\'albergo' : 'una casa'} a ${this.nm(idx)}`);
   }
   mortgage(p, idx) {
     const why = this.whyNotMortgage(p, idx); if (why) fail(why);
-    const sq = BOARD[idx];
+    const sq = this.BOARD[idx];
     this.props[idx].mortgaged = true;
     p.cash += sq.price / 2;
     this.addLog('mortgage', `${p.name} ipoteca ${this.nm(idx)} (+${eur(sq.price / 2)})`);
   }
   unmortgage(p, idx) {
     const why = this.whyNotUnmortgage(p, idx); if (why) fail(why);
-    const sq = BOARD[idx];
+    const sq = this.BOARD[idx];
     this.props[idx].mortgaged = false;
     p.cash -= Math.ceil(sq.price * 0.55);
     this.addLog('mortgage', `${p.name} riscatta l'ipoteca di ${this.nm(idx)}`);
@@ -985,8 +1210,8 @@ class Game {
     for (const i of side.props) {
       const pr = this.props[i];
       if (pr.owner !== p.id) fail(`${this.nm(i)} non è di ${label}.`);
-      const sq = BOARD[i];
-      if (sq.type === 'street' && GROUPS[sq.group].some((j) => this.props[j].houses > 0))
+      const sq = this.BOARD[i];
+      if (sq.type === 'street' && this.GROUPS[sq.group].some((j) => this.props[j].houses > 0))
         fail(`Per scambiare ${this.nm(i)} vendi prima gli edifici del suo colore.`);
     }
     if (side.jail > p.jailCards.length) fail(`${label} non ha tutte quelle carte "esci di prigione".`);
@@ -994,7 +1219,7 @@ class Game {
   tradeFee(receiverSideProps) {
     // chi riceve una proprietà ipotecata paga subito il 10% del valore dell'ipoteca
     let f = 0;
-    for (const i of receiverSideProps) if (this.props[i].mortgaged) f += Math.ceil(BOARD[i].price * 0.05);
+    for (const i of receiverSideProps) if (this.props[i].mortgaged) f += Math.ceil(this.BOARD[i].price * 0.05);
     return f;
   }
 
@@ -1087,6 +1312,7 @@ class Game {
       this.auction.active = this.auction.active.filter((id) => id !== p.id);
       if (this.auction.bidder === p.id) { this.auction.bidder = null; this.auction.high = 0; }
     }
+    if (this.sale && (this.sale.to === p.id || this.sale.from === p.id)) { this.sale = null; if (this.phase === 'sale') this.phase = 'buy'; }
     if (this.cur.id === p.id) {
       // il turno passa al prossimo (dopo aver chiuso i debiti degli altri)
       this.auction = null;
@@ -1117,6 +1343,7 @@ class Game {
 
   endAuctionNow() {
     if (this.phase === 'auction') this.checkAuction(true);
+    else if (this.phase === 'sale') { this.sale = null; this.phase = 'buy'; }
   }
 
   // ---------- jail ----------
@@ -1143,7 +1370,7 @@ class Game {
     const before = new Map(this.players.map((q) => [q.id, q.cash]));
     const seq0 = this.logSeq;
     const r = this._act(pid, a);
-    this.trackFx(before, seq0);
+    if (!(a && a.type === 'cheat')) this.trackFx(before, seq0); // il furbetto non si deve vedere sul tabellone
     return r;
   }
 
@@ -1180,6 +1407,10 @@ class Game {
         case 'roll': this.roll(p); break;
         case 'buy': this.buy(p); break;
         case 'decline': this.declineBuy(p); break;
+        case 'offerSale': this.offerSale(p, a.to, Number(a.price)); break;
+        case 'saleAccept': this.saleAnswer(p, true); break;
+        case 'saleDecline': this.saleAnswer(p, false); break;
+        case 'saleCancel': this.saleCancel(p); break;
         case 'bid': this.bid(p, a.amount); break;
         case 'pass': this.passAuction(p); break;
         case 'endTurn': this.endTurn(p); break;
@@ -1198,6 +1429,7 @@ class Game {
         case 'ace': this.playAce(p, a); break;
         case 'cheat': this.doCheat(p); break;
         case 'accuse': this.accuse(p); break;
+        case 'hold': this.needTurn(p); this.hold = true; break;
         case 'payBanker': this.payBanker(p, Number(a.id), Number(a.pct)); break;
         case 'accuseBanker': this.accuseBanker(p); break;
         default: fail('Azione sconosciuta.');
@@ -1276,6 +1508,7 @@ class Game {
       auction: this.auction,
       debts: this.debts.map((d) => ({ pid: d.pid, amount: d.amount, creditor: d.creditor, reason: d.reason })),
       buy: this.phase === 'buy' && cur ? { idx: cur.pos, price: this.priceOf(cur.pos) } : null,
+      sale: this.phase === 'sale' ? this.sale : null,
       card: this.card, log: this.log.slice(-30), pot: s.freeParking ? this.pot : null,
       housesLeft: this.housesLeft(), hotelsLeft: this.hotelsLeft(),
       winner: this.winner, ranking: this.ranking,
@@ -1284,7 +1517,8 @@ class Game {
       trades: me ? this.trades.filter((t) => t.from === me.id || t.to === me.id) : [],
       tradeCount: this.trades.length,
       turnCount: this.turnCount,
-      choice: this.choice, gameId: this.gameId,
+      choice: this.choice, gameId: this.gameId, hold: this.hold,
+      size: this.size, cols: this.cols, rows: this.rows, notice: this.notice,
       bankerId: s.banker ? this.bankerId : null,
       payouts: me && this.bankerId === me.id ? this.payouts : [],
       incoming: me ? this.payouts.filter((x) => x.pid === me.id).map((x) => ({ id: x.id, amount: x.amount, reason: x.reason })) : [],
@@ -1296,7 +1530,7 @@ class Game {
       aces: me ? me.aces : [],
       fx: this.fx.slice(-12),
       cheat: s.cheat && this.status === 'playing' && me ? {
-        canCheat: cur && cur.id === me.id && !this.cheatDone && (this.phase === 'roll' || this.phase === 'action'),
+        canCheat: cur && cur.id === me.id && !this.cheatDone && this.phase === 'roll' && this.doubles === 0 && !cur.inJail,
         pending: !!(this.cheat && this.cheat.pid === me.id),
         canAccuse: !!cur && cur.id !== me.id && !me.bankrupt && !this.accused.includes(me.id),
       } : null,
@@ -1304,4 +1538,4 @@ class Game {
   }
 }
 
-module.exports = { FEATURES, Game, GameError, BOARD, GROUPS, STATIONS, UTILS, TOKENS, MAX_PLAYERS, PRESETS, ACES };
+module.exports = { FEATURES, Game, GameError, BOARD, GROUPS, STATIONS, UTILS, BOARDS: DATA.BOARDS, TOKENS, MAX_PLAYERS, PRESETS, ACES };

@@ -1,15 +1,23 @@
 (() => {
   'use strict';
   const D = window.GAME_DATA;
-  const BOARD = D.BOARD;
+  let BOARD = D.BOARDS[60].squares, curSize = 0;
   const $ = (s, el = document) => el.querySelector(s);
   const eur = (n) => '€' + n;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const GROUPS = {};
-  BOARD.forEach((sq, i) => { if (sq.type === 'street') (GROUPS[sq.group] = GROUPS[sq.group] || []).push(i); });
-  const nm = (i) => D.nameOf(S ? S.settings.theme : 'italia', i);
-  const STATIONS = BOARD.map((s, i) => (s.type === 'station' ? i : -1)).filter((i) => i >= 0);
+  let GROUPS = {}, STATIONS = [];
+  function useSize(size) {
+    size = size || 40;
+    if (size === curSize) return;
+    curSize = size;
+    BOARD = (D.BOARDS[size] || D.BOARDS[40]).squares;
+    GROUPS = {};
+    BOARD.forEach((sq, i) => { if (sq.type === 'street') (GROUPS[sq.group] = GROUPS[sq.group] || []).push(i); });
+    STATIONS = BOARD.map((q, i) => (q.type === 'station' ? i : -1)).filter((i) => i >= 0);
+  }
+  useSize(60);
+  const nm = (i) => D.nameOf(S ? S.settings.theme : 'italia', BOARD[i]);
 
   let token = localStorage.getItem('dv_token');
   let S = null, lastJson = '', es = null;
@@ -18,6 +26,7 @@
   let selEmoji = null, typedName = '';
   let joinBuilt = false;
   let delta = null;            // { v, until }
+  let salePick = null;         // { to, price } mentre preparo una vendita diretta
   let pick = null;             // { kind:'ace', key } mentre si sceglie il bersaglio
   let lastLogSeen = null;
   let lastCash = null, lastTurnMe = false, lastTradeIds = '', lastDebt = false;
@@ -35,7 +44,7 @@
     t.textContent = msg;
     t.className = 'show' + (bad ? ' bad' : '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.className = ''; }, bad ? 3200 : 2200);
+    toastTimer = setTimeout(() => { t.className = ''; }, bad ? 5000 : 3600);
   }
   async function act(a) {
     const r = await post('/api/act', Object.assign({ token }, a));
@@ -77,7 +86,7 @@
   const textOn = (c) => (['#f4d93b', '#8fd3f4'].includes(c) ? '#222' : '#fff');
   function rentNow(i) {
     const sq = BOARD[i], pr = S.props[i];
-    if (sq.type === 'street') return pr.houses > 0 ? eur(sq.rent[pr.houses]) : eur(sq.rent[0] * (ownsAll(pr.owner, sq.group) ? 2 : 1));
+    if (sq.type === 'street') return pr.houses >= 6 ? eur(Math.round(sq.rent[5] * 1.6 / 10) * 10) : pr.houses > 0 ? eur(sq.rent[pr.houses]) : eur(sq.rent[0] * (ownsAll(pr.owner, sq.group) ? 2 : 1));
     if (sq.type === 'station') return eur(25 * Math.pow(2, STATIONS.filter((j) => S.props[j].owner === pr.owner).length - 1));
     return '4× / 10× dadi';
   }
@@ -96,15 +105,49 @@
   }
 
   // ---------- notifiche ----------
+  // suoni sul telefono (si sbloccano al primo tocco)
+  let pctx = null, silentP = null, pSound = true;
+  try { pSound = localStorage.getItem('dv_psound') !== '0'; } catch (e) { /* */ }
+  function pEnsure() {
+    if (!pSound) return false;
+    if (!pctx) { try { pctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return false; } }
+    if (pctx.state !== 'running') pctx.resume();
+    if (!silentP) {
+      try {
+        const n = 8000, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        silentP = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))); silentP.loop = true; silentP.setAttribute('playsinline', '');
+      } catch (e) { /* */ }
+    }
+    if (silentP && silentP.paused) silentP.play().catch(() => {});
+    return pctx.state === 'running';
+  }
+  ['pointerdown', 'touchend', 'click'].forEach((ev) => document.addEventListener(ev, pEnsure, { passive: true }));
+  function ptone(f, t0, d, type, vol) {
+    const o = pctx.createOscillator(), g = pctx.createGain();
+    o.type = type || 'sine'; o.frequency.value = f;
+    const t = pctx.currentTime + t0;
+    g.gain.setValueAtTime(vol || 0.25, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(pctx.destination); o.start(t); o.stop(t + d + 0.03);
+  }
+  function psfx(k) {
+    if (!pSound || !pEnsure()) return;
+    if (k === 'turn') { ptone(660, 0, 0.14); ptone(880, 0.14, 0.14); ptone(1320, 0.28, 0.3); }
+    if (k === 'gain') { ptone(880, 0, 0.1); ptone(1175, 0.09, 0.16); }
+    if (k === 'lose') { ptone(330, 0, 0.12, 'triangle'); ptone(247, 0.1, 0.2, 'triangle'); }
+    if (k === 'alert') { ptone(500, 0, 0.12, 'square', 0.15); ptone(500, 0.18, 0.12, 'square', 0.15); }
+  }
   function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) { /* */ } }
   function notifications() {
     const m = me();
     if (!m || S.status !== 'playing') return;
     const myTurn = S.turn === S.you && ['roll', 'buy', 'action'].includes(S.phase);
-    if (S.turn === S.you && S.phase === 'roll' && !lastTurnMe) { toast('🎲 Tocca a te!'); buzz([200, 100, 200]); }
+    if (S.turn === S.you && S.phase === 'roll' && !lastTurnMe) { toast('🎲 Tocca a te!'); buzz([200, 100, 200]); psfx('turn'); }
     lastTurnMe = S.turn === S.you && S.phase === 'roll' ? true : (S.turn === S.you ? lastTurnMe : false);
     const ids = S.trades.filter((t) => t.to === S.you).map((t) => t.id).join(',');
-    if (ids && ids !== lastTradeIds && ids.split(',').some((x) => !lastTradeIds.split(',').includes(x))) { toast('🤝 Hai una proposta di scambio!'); buzz([120, 80, 120]); }
+    if (ids && ids !== lastTradeIds && ids.split(',').some((x) => !lastTradeIds.split(',').includes(x))) { toast('🤝 Hai una proposta di scambio!'); buzz([120, 80, 120]); psfx('alert'); }
     lastTradeIds = ids;
     const inDebt = S.debts.some((d) => d.pid === S.you);
     if (inDebt && !lastDebt) buzz([300]);
@@ -114,12 +157,15 @@
   }
 
   function onState(s) {
+    useSize(s.size);
+    if (s.phase !== 'buy' || s.turn !== s.you) salePick = null;
     S = s;
     if (token && s.you === null) { logout(); return; }
     const m = me();
     if (m && m.cash !== null) {
       if (lastCash !== null && lastCash > 0 && m.cash !== lastCash) {
         delta = { v: m.cash - lastCash, until: Date.now() + 2400 };
+        psfx(m.cash > lastCash ? 'gain' : 'lose');
         setTimeout(render, 2500);
       }
       lastCash = m.cash;
@@ -135,7 +181,9 @@
     lastLogSeen = last;
     const me0 = me();
     for (const l of fresh) {
-      if (['event', 'ace', 'cheat'].includes(l.kind) || (l.kind === 'dice' && /TRIS|navetta/.test(l.text)) || (l.kind === 'move' && /Jolly|scambiano/.test(l.text))) {
+      if (['rent', 'tax', 'pay', 'go', 'jail', 'notice', 'build'].includes(l.kind) && (l.kind === 'notice' || (me0 && l.text.includes(me0.name)))) {
+        toast(l.text, ['rent', 'tax', 'pay', 'jail'].includes(l.kind) && me0 && l.text.includes(me0.name) && !/ritira|incassa/.test(l.text)); buzz([120, 60, 120]);
+      } else if (['event', 'ace', 'cheat'].includes(l.kind) || (l.kind === 'dice' && /TRIS|navetta/.test(l.text)) || (l.kind === 'move' && /Jolly|scambiano/.test(l.text))) {
         toast(l.text); buzz(l.kind === 'cheat' && me0 && l.text.includes(me0.name) ? [200, 80, 200] : 40);
       }
     }
@@ -186,7 +234,7 @@
     const sq = BOARD[idx];
     const col = colorOf(idx);
     let rows = '';
-    if (sq.type === 'street') rows = `<div class="db"><span>Affitto</span><b>${eur(sq.rent[0])}</b></div><div class="db"><span>Con tutto il colore</span><b>${eur(sq.rent[0] * 2)}</b></div><div class="db"><span>Una casa</span><b>${eur(sq.rent[1])}</b></div><div class="db"><span>Albergo</span><b>${eur(sq.rent[5])}</b></div>`;
+    if (sq.type === 'street') rows = `<div class="db"><span>Affitto</span><b>${eur(sq.rent[0])}</b></div><div class="db"><span>Con tutto il colore</span><b>${eur(sq.rent[0] * 2)}</b></div><div class="db"><span>Una casa</span><b>${eur(sq.rent[1])}</b></div><div class="db"><span>Albergo</span><b>${eur(sq.rent[5])}</b></div><div class="db"><span>🗽 Monumento</span><b>${eur(Math.round(sq.rent[5] * 1.6 / 10) * 10)}</b></div>`;
     else if (sq.type === 'station') rows = '<div class="db"><span>Affitto</span><b>€25 – €200</b></div>';
     else rows = '<div class="db"><span>Affitto</span><b>4× o 10× dadi</b></div>';
     return `<div class="deed"><div class="dh" style="background:${col};color:${textOn(col)}">${esc(nm(idx))}</div>
@@ -213,7 +261,7 @@
     if (!c) return '';
     if (mine) {
       if (c.pending) return '<p class="muted">🕵️ Hai barato… speriamo che nessuna se ne accorga!</p>';
-      if (c.canCheat) return '<button class="btn sm ghost" data-act="cheat" style="margin-top:10px">🕵️ Fai il furbo (+€100 di nascosto)</button>';
+      if (c.canCheat) return '<button class="btn sm ghost" data-act="cheat" style="margin-top:10px">🕵️ Fai il furbo (+€100 di nascosto, prima di tirare)</button>';
       return '';
     }
     if (c.canAccuse) return '<button class="btn gold" data-act="accuse">🔎 Accusa di aver barato</button><p class="muted">Giusta: lei paga €200 a te. Sbagliata: paghi €50 tu.</p>';
@@ -231,6 +279,12 @@
     return `<div class="card"><h3>${A.icon} ${A.name}: ${A.target === 'player' ? 'scegli chi' : 'scegli dove andare'}</h3>${body}${pick.kind === 'tris' ? '' : '<button class="btn ghost" data-act="cancelPick">Annulla</button>'}</div>`;
   }
 
+  function autoHTML() {
+    if (!S.settings.autoEnd) return '<p class="muted">Prima di finire puoi costruire, ipotecare o fare scambi.</p>';
+    if (S.hold) return '<p class="muted">⏸ Turno in pausa: premi il pulsante quando hai finito.</p>';
+    if (S.autoLeft > 0) return `<div class="autobar"><div class="fill" style="animation-duration:${S.autoLeft}ms"></div><span>Il turno passa da solo…</span><button class="btn sm ghost" data-act="hold">⏸ Aspetta</button></div>`;
+    return '<p class="muted">Prima di finire puoi costruire, ipotecare o fare scambi.</p>';
+  }
   function bankerHTML(m) {
     if (!S.settings.banker || !S.bankerId) return '';
     const b = P(S.bankerId);
@@ -287,6 +341,17 @@
       return html + '</div>' + logHTML(3);
     }
 
+    if (S.phase === 'sale' && S.sale) {
+      const sl = S.sale, seller = P(sl.from), to = P(sl.to);
+      html += `<div class="card"><h3>🤝 Offerta diretta</h3>${deedMini(sl.idx)}
+        <p class="bigtxt">${eur(sl.price)}</p>`;
+      if (sl.to === S.you) html += `<p style="text-align:center"><b>${seller.emoji} ${esc(seller.name)}</b> ti offre <b>${esc(nm(sl.idx))}</b> per ${eur(sl.price)}. Ti conviene?</p>
+        <div class="row"><button class="btn green ${m.cash >= sl.price ? '' : 'off'}" data-act="${m.cash >= sl.price ? 'saleAccept' : 'why'}" data-w="Non hai abbastanza soldi">✅ Accetto</button><button class="btn ghost" data-act="saleDecline">❌ No grazie</button></div>`;
+      else if (sl.from === S.you) html += `<p class="muted" style="text-align:center">Aspetta la risposta di ${to.emoji} ${esc(to.name)}…</p><button class="btn ghost" data-act="saleCancel">Ritira l'offerta</button>`;
+      else html += `<p class="muted" style="text-align:center">${seller.emoji} ${esc(seller.name)} offre la proprietà a ${to.emoji} ${esc(to.name)}.</p>`;
+      return html + '</div>' + logHTML(3);
+    }
+
     if (S.phase === 'debt') {
       const d = S.debts[0];
       return `<div class="card"><h3>⏳ Aspetta…</h3><p>${P(d.pid).emoji} ${esc(P(d.pid).name)} deve raccogliere ${eur(d.amount)}.</p></div>` + logHTML(3);
@@ -321,12 +386,25 @@
         <div class="row"><button class="btn green" data-act="busPick" data-p="d1">${c.d1}</button><button class="btn green" data-act="busPick" data-p="d2">${c.d2}</button><button class="btn gold" data-act="busPick" data-p="sum">${c.d1 + c.d2}</button></div></div>`;
       return html + logHTML(3);
     }
+    if (S.phase === 'buy' && salePick) {
+      const idx = S.buy.idx;
+      const others = S.players.filter((p) => !p.bankrupt && p.id !== S.you);
+      html += `<div class="card"><h3>🤝 Offri ${esc(nm(idx))} a una giocatrice</h3>
+        <p class="muted">Scegli a chi e a che prezzo. Se accetta, la proprietà è sua e i soldi li prendi tu. Se rifiuta, torni a decidere.</p>
+        <div class="chips">${others.map((p) => `<button class="chip ${salePick.to === p.id ? 'on' : ''}" data-act="saleTo" data-id="${p.id}">${p.emoji} ${esc(p.name)}</button>`).join('')}</div>
+        <div class="bigtxt">${eur(salePick.price)}</div>
+        <div class="row">${[-50, -10, 10, 50].map((d) => `<button class="btn ghost sm" data-act="salePrice" data-d="${d}">${d > 0 ? '+' : ''}${d}</button>`).join('')}</div>
+        <button class="btn green ${salePick.to ? '' : 'off'}" data-act="${salePick.to ? 'saleSend' : 'why'}" data-w="Scegli prima a chi offrirla">Invia l'offerta</button>
+        <button class="btn ghost" data-act="saleClose">Annulla</button></div>`;
+      return html + logHTML(3);
+    }
     if (S.phase === 'buy') {
       const idx = S.buy.idx;
       const can = m.cash >= S.buy.price;
       html += `<div class="card"><h3>Sei su ${esc(nm(idx))}</h3>${diceHTML(S.dice)}${deedMini(idx)}
         <button class="btn green ${can ? '' : 'off'}" data-act="buy">Compra per ${eur(S.buy.price)}</button>
         <button class="btn ghost" data-act="decline">${S.settings.auctions ? 'Non comprare (asta)' : 'Non comprare'}</button>
+        <button class="btn ghost" data-act="saleOpen">🤝 Offri a una giocatrice</button>
         ${can ? '' : '<p class="muted">Non hai abbastanza soldi: puoi ipotecare qualcosa nel tab Proprietà.</p>'}</div>`;
       return html + logHTML(3);
     }
@@ -334,7 +412,7 @@
       const again = S.canRollAgain && !m.inJail;
       html += `<div class="card"><h3>${again ? 'Doppio! 🎉' : 'Il tuo turno'}</h3>
         ${diceHTML(S.dice)}
-        <p class="muted">Prima di finire puoi costruire, ipotecare o fare scambi.</p>
+        ${autoHTML()}
         <button class="btn ${again ? 'green' : 'gold'}" data-act="endTurn">${again ? '🎲 Tira ancora' : 'Fine turno'}</button>${cheatHTML(true)}</div>`;
       html += acesHTML(m, true);
       return html + logHTML(4);
@@ -350,13 +428,13 @@
     for (const i of mine) {
       const sq = BOARD[i], pr = S.props[i], pm = perms[i] || {};
       const full = sq.type === 'street' && ownsAll(S.you, sq.group);
-      const hs = sq.type === 'street' && pr.houses ? `<span class="hs">${pr.houses === 5 ? '<i class="hotel"></i>' : '<i></i>'.repeat(pr.houses)}</span>` : '';
+      const hs = sq.type === 'street' && pr.houses ? `<span class="hs">${pr.houses === 6 ? '🗽' : pr.houses === 5 ? '<i class="hotel"></i>' : '<i></i>'.repeat(pr.houses)}</span>` : '';
       const why = pm.why || {};
       const B = (act, cls, label, ok) => `<button class="btn sm ${cls} ${ok ? '' : 'off'}" data-act="${ok ? act : 'why'}" data-i="${i}" data-w="${esc(why[act] || '')}">${label}</button>`;
       let btns = '';
       if (sq.type === 'street' && full) {
-        btns += B('build', 'green', `${pr.houses === 4 ? '🏨 Albergo' : '🏠 Casa'} −${sq.houseCost}`, pm.build);
-        if (pr.houses > 0) btns += B('sell', 'ghost', `Vendi +${sq.houseCost / 2}`, pm.sell);
+        btns += B('build', pr.houses === 5 ? 'gold' : 'green', `${pr.houses === 5 ? '🗽 Monumento' : pr.houses === 4 ? '🏨 Albergo' : '🏠 Casa'} −${pr.houses >= 5 ? sq.houseCost * 2 : sq.houseCost}`, pm.build);
+        if (pr.houses > 0) btns += B('sell', 'ghost', `Vendi +${Math.floor((pr.houses > 5 ? sq.houseCost * 2 : sq.houseCost) / 2)}`, pm.sell);
       }
       if (!pr.mortgaged) btns += B('mortgage', 'ghost', `Ipoteca +${sq.price / 2}`, pm.mortgage);
       else btns += B('unmortgage', 'gold', `Riscatta −${Math.ceil(sq.price * 0.55)}`, pm.unmortgage);
@@ -457,12 +535,14 @@
         <div class="row"><button class="btn sm gold" data-act="vpreset" data-k="ultra">🎉 Voglio tutto (Ultra)</button><button class="btn sm ghost" data-act="vpreset" data-k="classic">📜 Solo classico</button></div>
         ${rows}</div>
       ${host ? `<div class="card"><h3>Impostazioni di ${esc(m.name)} ⭐</h3><div class="chips">
+        <button class="chip" data-act="set" data-k="boardSize">🗺️ Tabellone: ${st.boardSize === 40 ? 'classico 40' : 'lungo 60'}</button>
         <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
         <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button>
         <button class="chip" data-act="set" data-k="maxRounds">⏱️ Durata: ${DUR[st.maxRounds]}</button>
-        <button class="chip ${st.showCash && !st.cheat ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
+        <button class="chip ${st.autoEnd ? 'on' : ''}" data-act="set" data-k="autoEnd">⏭️ Fine turno automatico</button>
+        <button class="chip ${st.showCash && !st.cheat && !st.banker ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
         <button class="btn green ${S.players.length < 2 ? 'off' : ''}" data-act="start">Inizia la partita</button></div>`
-        : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone). Partita: ${(D.THEMES[st.theme] || D.THEMES.italia).label}, ${eur(st.startCash)}, durata ${DUR[st.maxRounds]}.</p></div>`}
+        : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone). Partita: ${(D.THEMES[st.theme] || D.THEMES.italia).label}, ${eur(st.startCash)}, durata ${DUR[st.maxRounds]}, tabellone ${st.boardSize === 40 ? 'classico' : 'lungo'}.</p></div>`}
       <button class="btn ghost" data-act="help">❓ Come si gioca</button>
       <button class="btn ghost" data-act="leave">Esci</button></div>`;
   }
@@ -481,9 +561,9 @@
         <button class="btn green" data-act="closeModal">Ho capito, si gioca!</button></div></div>`;
     }
     if (modal === 'help') {
-      return `<div class="modal"><div class="mbox"><h2>❓ Come si gioca</h2>${D.BASICS.map((x) => `<p>${x}</p>`).join('')}
+      return `<div class="modal"><div class="mbox"><h2>❓ Come si gioca</h2>${D.BASICS.map((x) => `<p class="step">${x}</p>`).join('')}${S.size === 60 ? `<h3 style="margin-top:14px">Caselle speciali</h3>${D.SPECIALS.map((x) => `<p class="step">${x}</p>`).join('')}` : ''}
         <h3 style="margin-top:14px">Regole speciali di questa partita</h3>${S.status === 'lobby' ? '<p class="muted">Si decidono con il voto qui sotto.</p>' + FEAT.map((k) => `<div class="rl"><b>${D.RULES[k].icon} ${D.RULES[k].title}</b>${ruleDetail(k)}</div>`).join('') : activeRulesHTML(true)}
-        <button class="btn gold" data-act="closeModal">Chiudi</button></div></div>`;
+        <button class="btn ghost" data-act="snd">${pSound ? '🔊 Suoni attivi (tocca per spegnere)' : '🔇 Suoni spenti (tocca per accendere)'}</button><button class="btn gold" data-act="closeModal">Chiudi</button></div></div>`;
     }
     return '';
   }
@@ -519,7 +599,11 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   document.addEventListener('click', async (e) => {
     const tabBtn = e.target.closest('[data-tab]');
-    if (tabBtn) { tab = tabBtn.dataset.tab; render(); window.scrollTo(0, 0); return; }
+    if (tabBtn) {
+      tab = tabBtn.dataset.tab;
+      if (S && S.status === 'playing' && S.turn === S.you && S.phase === 'action' && !S.hold && (tab === 'props' || tab === 'scambi')) act({ type: 'hold' }); // sto gestendo: niente fine turno automatico
+      render(); window.scrollTo(0, 0); return;
+    }
     const b = e.target.closest('[data-act]');
     if (!b || !S) return;
     const a = b.dataset.act;
@@ -546,6 +630,8 @@
       case 'bid': await act({ type: 'bid', amount: Number(d.amt) }); return;
       case 'payBanker': await act({ type: 'payBanker', id: Number(d.id), pct: Number(d.pct) }); return;
       case 'accuseBanker': { const r = await act({ type: 'accuseBanker' }); return r; }
+      case 'hold': await act({ type: 'hold' }); return;
+      case 'snd': pSound = !pSound; try { localStorage.setItem('dv_psound', pSound ? '1' : '0'); } catch (e) { /* */ } if (pSound) { pEnsure(); psfx('gain'); } render(); return;
       case 'help': modal = 'help'; render(); return;
       case 'closeModal': { if (modal === 'intro' && S.gameId) { try { localStorage.setItem('dv_seen', S.gameId); } catch (e) { /* */ } } modal = null; render(); return; }
       case 'why': if (d.w) toast(d.w, true); return;
@@ -563,6 +649,12 @@
         return;
       }
       case 'cancelPick': pick = null; render(); return;
+      case 'saleOpen': salePick = { to: null, price: S.buy ? S.buy.price : 100 }; render(); return;
+      case 'saleClose': salePick = null; render(); return;
+      case 'saleTo': if (salePick) salePick.to = d.id; render(); return;
+      case 'salePrice': if (salePick) salePick.price = Math.max(0, salePick.price + Number(d.d)); render(); return;
+      case 'saleSend': { if (!salePick || !salePick.to) return; const r = await act({ type: 'offerSale', to: salePick.to, price: salePick.price }); if (r.ok) salePick = null; render(); return; }
+      case 'saleAccept': case 'saleDecline': case 'saleCancel': await act({ type: a }); return;
       case 'acetarget': { const r = await act({ type: 'ace', ace: pick.key, target: d.id }); if (r.ok) { pick = null; buzz(40); } render(); return; }
       case 'acesq': { const r = await act({ type: 'ace', ace: pick.key, idx: Number(d.i) }); if (r.ok) { pick = null; buzz(40); } render(); return; }
       case 'build': case 'sell': case 'mortgage': case 'unmortgage': await act({ type: a, idx: Number(d.i) }); return;
@@ -570,7 +662,8 @@
       case 'resign': if (confirm('Vuoi davvero arrenderti? Esci dal gioco e lasci tutto alla banca.')) await act({ type: 'bankrupt' }); return;
       case 'set': {
         const st = S.settings;
-        if (d.k === 'startCash') { const o = [1000, 1500, 2000, 3000]; await act({ type: 'settings', startCash: o[(o.indexOf(st.startCash) + 1) % o.length] }); }
+        if (d.k === 'boardSize') await act({ type: 'settings', boardSize: st.boardSize === 40 ? 60 : 40 });
+        else if (d.k === 'startCash') { const o = [1000, 1500, 2000, 3000]; await act({ type: 'settings', startCash: o[(o.indexOf(st.startCash) + 1) % o.length] }); }
         else if (d.k === 'maxRounds') { const o = [0, 20, 30, 50]; await act({ type: 'settings', maxRounds: o[(o.indexOf(st.maxRounds) + 1) % o.length] }); }
         else if (d.k === 'theme') { const o = Object.keys(D.THEMES); await act({ type: 'settings', theme: o[(o.indexOf(st.theme) + 1) % o.length] }); }
         else await act({ type: 'settings', [d.k]: !st[d.k] });

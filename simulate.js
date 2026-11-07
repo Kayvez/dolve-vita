@@ -1,7 +1,8 @@
 'use strict';
 // Simula partite complete con giocatori casuali per cercare bug, blocchi e stati impossibili.
 // Uso: node test/simulate.js [numero_partite]
-const { Game, BOARD } = require('../game');
+const { Game } = require('../game');
+const { CARDS } = require('../public/shared/data.js');
 const { TOKENS } = require('../public/shared/data.js');
 
 function mulberry32(a) {
@@ -30,7 +31,7 @@ function invariants(g, label) {
   for (const i in g.props) {
     const pr = g.props[i];
     if (pr.owner && !g.player(pr.owner)) bad('owner inesistente');
-    if (pr.houses && (pr.mortgaged || BOARD[i].type !== 'street')) bad('case su ipotecata/non strada');
+    if (pr.houses && (pr.mortgaged || g.BOARD[i].type !== 'street')) bad('case su ipotecata/non strada');
     if (!pr.owner && (pr.houses || pr.mortgaged)) bad('libera ma con case/ipoteca');
   }
   // carte uscita di prigione: 2 totali, in mano o nel mazzo
@@ -38,8 +39,8 @@ function invariants(g, label) {
   for (const p of g.players) cards += p.jailCards.length;
   const inDecks = (g.decks.fortuna.length - 15) + (g.decks.sorpresa.length - 15);
   if (cards + 2 + inDecks !== 2 + 0 + 0 + 2 - 2 + 0 && false) bad('carte');
-  if (g.decks.fortuna.length + g.players.reduce((n, p) => n + p.jailCards.filter((c) => c.deck === 'fortuna').length, 0) !== 16) bad('mazzo fortuna');
-  if (g.decks.sorpresa.length + g.players.reduce((n, p) => n + p.jailCards.filter((c) => c.deck === 'sorpresa').length, 0) !== 16) bad('mazzo sorpresa');
+  if (g.decks.fortuna.length + g.players.reduce((n, p) => n + p.jailCards.filter((c) => c.deck === 'fortuna').length, 0) !== CARDS.fortuna.length) bad('mazzo fortuna');
+  if (g.decks.sorpresa.length + g.players.reduce((n, p) => n + p.jailCards.filter((c) => c.deck === 'sorpresa').length, 0) !== CARDS.sorpresa.length) bad('mazzo sorpresa');
 }
 
 function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
@@ -74,7 +75,7 @@ function randomExtras(g, rng, cur) {
   if (cur.aces.length && rng() < 0.4) {
     const key = pick(rng, cur.aces);
     const others = g.alive().filter((q) => q.id !== cur.id);
-    const a = { type: 'ace', ace: key, target: others.length ? pick(rng, others).id : null, idx: Math.floor(rng() * 40) };
+    const a = { type: 'ace', ace: key, target: others.length ? pick(rng, others).id : null, idx: Math.floor(rng() * g.N) };
     const r = g.act(cur.id, a);
     if (r.ok) stats.aces++;
   }
@@ -109,9 +110,22 @@ function step(g, rng) {
       return true;
     }
     case 'buy': {
-      const sq = BOARD[cur.pos];
+      const sq = g.BOARD[cur.pos];
+      if (rng() < 0.2) {
+        const o = pick(rng, g.alive().filter((q) => q.id !== cur.id));
+        const r = g.act(cur.id, { type: 'offerSale', to: o.id, price: Math.floor(rng() * 300) });
+        if (r.ok) { stats.sales = (stats.sales || 0) + 1; return true; }
+      }
       if (cur.cash >= g.priceOf(cur.pos) && rng() < 0.75) g.act(cur.id, { type: 'buy' });
       else g.act(cur.id, { type: 'decline' });
+      return true;
+    }
+    case 'sale': {
+      const sl = g.sale;
+      const c = rng();
+      if (c < 0.5) g.act(sl.to, { type: 'saleAccept' });
+      else if (c < 0.8) g.act(sl.to, { type: 'saleDecline' });
+      else g.act(sl.from, { type: 'saleCancel' });
       return true;
     }
     case 'auction': {
@@ -119,7 +133,7 @@ function step(g, rng) {
       const a = g.auction;
       const pid = pick(rng, a.active);
       const p = g.player(pid);
-      const sq = BOARD[a.idx];
+      const sq = g.BOARD[a.idx];
       if (rng() < 0.5 && a.bidder !== pid && p.cash > a.high && a.high < sq.price * 1.3) {
         const amt = Math.min(p.cash, a.high + 10 + Math.floor(rng() * 50));
         const r = g.act(pid, { type: 'bid', amount: amt });
@@ -132,7 +146,7 @@ function step(g, rng) {
       const c = g.choice;
       const r = c.kind === 'bus'
         ? g.act(cur.id, { type: 'busPick', pick: pick(rng, ['d1', 'd2', 'sum']) })
-        : g.act(cur.id, { type: 'warpTo', idx: (cur.pos + 1 + Math.floor(rng() * 39)) % 40 });
+        : g.act(cur.id, { type: 'warpTo', idx: (cur.pos + 1 + Math.floor(rng() * (g.N - 1))) % g.N });
       if (!r.ok) throw new Error('choose: ' + r.error);
       return true;
     }
@@ -176,7 +190,7 @@ for (let n = 0; n < N; n++) {
   const seed = 1000 + n;
   const rng = mulberry32(seed);
   const g = new Game(rng);
-  g.setSettings({ preset: n % 4 === 3 ? 'classic' : 'ultra', banker: n % 3 === 1, theme: ['italia', 'mondo', 'gola'][n % 3] });
+  g.setSettings({ boardSize: n % 5 === 4 ? 40 : 60, preset: n % 4 === 3 ? 'classic' : 'ultra', banker: n % 3 === 1, theme: ['italia', 'mondo', 'gola'][n % 3] });
   const np = 2 + (n % 7);
   for (let i = 0; i < np; i++) g.join('G' + i, TOKENS[i]);
   if (n % 3 === 0) g.settings.freeParking = !g.settings.freeParking;

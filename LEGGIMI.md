@@ -83,3 +83,28 @@ Sul tabellone o dal telefono di chi ha creato la partita: **🎉 Ultra** (tutte 
 
 ## Banchiere furbo (2.2, regola votabile)
 A sorte uno diventa banchiere (gioca anche lui). I soldi che la banca deve dare (Partenza, carte) li paga lui dal telefono: **Tutto, ¾, metà o niente**. Quello che trattiene lo tiene per sé, di nascosto. Chi sospetta può **accusarlo** (una volta a giro): se aveva trattenuto, restituisce il doppio; se era onesto, l'accusatrice paga €50. I pagamenti non gestiti a fine turno arrivano interi. Con questa regola i soldi di tutte sono segreti sul tabellone.
+
+## Novità 3.0
+
+### 💾 Salvataggio sicuro (per non perdere MAI la partita)
+Sul sito gratuito (Render) il server ogni tanto si "addormenta" o si riavvia, e quello che è nella sua memoria interna si cancella. Con il salvataggio sicuro la partita viene copiata ogni istante su un archivio esterno gratuito (Upstash) e ritorna da sola. Si fa una volta sola:
+1. Vai su **upstash.com**, crea un account gratuito (anche con Google).
+2. Crea un database **Redis** (nome a piacere, regione Europa, piano Free).
+3. Nella pagina del database, sezione **REST API**, copia i due valori: **UPSTASH_REDIS_REST_URL** e **UPSTASH_REDIS_REST_TOKEN**.
+4. Su **render.com** apri il tuo servizio → **Environment** → **Add Environment Variable**: aggiungi `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN` con i valori copiati → **Save** (Render riparte da solo).
+Sul tabellone compare la scritta verde "💾 Salvataggio sicuro attivo". Se invece vedi la scritta rossa "Salvataggio temporaneo", non è ancora collegato.
+
+### 🗺️ Tabellone lungo (60 caselle)
+Di default il tabellone ora è più lungo (60 caselle). Si può tornare a quello classico da 40 con il pulsante "🗺️ Tabellone" prima di iniziare. Nuovi colori (verde acqua e viola) e nuove caselle: 🎰 Casinò, 🎡 Ruota della fortuna, 🃏 Mercato degli Assi, 🌀 Teletrasporto, 🧖 Relax, 🏆 Premio di città e ⚡ Imprevisti (un mazzo nuovo, quasi tutto guai).
+
+### 🗽 Cosa fare quando hai tutto un colore
+Affitto raddoppiato subito, poi si costruiscono 🏠 case (fino a 4), 🏨 albergo e infine il 🗽 **Monumento**: costa il doppio di una casa e l'affitto sale ancora più su.
+
+### Altre novità
+- **Fine turno automatico**: dopo qualche secondo il turno passa da solo (si può fermare dal telefono, e spegnere dalle regole).
+- **Offerta diretta**: quando arrivi su una proprietà libera, oltre a comprare o all'asta, puoi offrirla a UNA giocatrice a un prezzo deciso da te.
+- **Furbetti**: solo a inizio turno, prima di tirare, e il tabellone non mostra nulla.
+- **Avvisi grandi e lenti** per affitti, multe, premi, Partenza d'oro, sciopero dei treni ecc.
+- **Pedine più grandi**, con il nome sopra a chi sta giocando.
+- **Tocca una casella** sul tabellone per leggerne la scheda e le regole.
+- **Suoni**: sull'iPad tocca la scritta gialla "Attiva i suoni" e controlla che il tasto muto laterale non sia attivo.

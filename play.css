@@ -138,3 +138,10 @@ nav .bd { position: absolute; top: 4px; left: 58%; background: var(--red); color
 
 .bankcard { border: 2px solid #e5b84b; }
 .payrow { border-top: 1px solid #e3e8ee; padding-top: 6px; margin-top: 6px; } .payrow small { font-weight: 400; opacity: .8; }
+
+.autobar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0 4px; padding: 8px 10px; border-radius: 12px; background: #eef2f6; overflow: hidden; font-size: 14px; }
+.autobar .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: rgba(39,165,106,.3); transform-origin: left; animation: shrink linear forwards; }
+.autobar span, .autobar button { position: relative; }
+@keyframes shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+.step { margin: 8px 0; line-height: 1.35; }

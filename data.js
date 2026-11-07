@@ -10,65 +10,98 @@
   const GROUP_COLORS = {
     brown: '#8b5a3c', lblue: '#8fd3f4', pink: '#e66fb0', orange: '#f59a3b',
     red: '#e04646', yellow: '#f4d93b', green: '#3fae6a', blue: '#2f5fd0',
+    teal: '#1fb5a5', violet: '#8e5bd0',
   };
   const GROUP_NAMES = {
     brown: 'Marrone', lblue: 'Azzurro', pink: 'Rosa', orange: 'Arancione',
-    red: 'Rosso', yellow: 'Giallo', green: 'Verde', blue: 'Blu',
+    red: 'Rosso', yellow: 'Giallo', green: 'Verde', blue: 'Blu', teal: 'Verde acqua', violet: 'Viola',
   };
-  const HOUSE_COST = { brown: 50, lblue: 50, pink: 100, orange: 100, red: 150, yellow: 150, green: 200, blue: 200 };
+  const HOUSE_COST = { brown: 50, lblue: 50, pink: 100, orange: 100, red: 150, yellow: 150, green: 200, blue: 200, teal: 75, violet: 150 };
 
-  const st = (name, group, price, rent) => ({ type: 'street', name, group, price, rent, houseCost: HOUSE_COST[group] });
+  const st = (id, name, group, price, rent) => ({ id, type: 'street', name, group, price, rent, houseCost: HOUSE_COST[group] });
+  const stn = (id, name) => ({ id, type: 'station', name, price: 200 });
+  const ut = (id, name, icon) => ({ id, type: 'util', name, price: 150, icon });
+  const SORP = { type: 'sorpresa', name: 'Sorpresa' }, FORT = { type: 'fortuna', name: 'Fortuna' }, IMPR = { type: 'imprevisto', name: 'Imprevisto' };
 
-  const BOARD = [
-    { type: 'go', name: 'Partenza' },                                   // 0
-    st('I Sassi', 'brown', 60, [2, 10, 30, 90, 160, 250]),             // 1
-    { type: 'sorpresa', name: 'Sorpresa' },                            // 2
-    st('Alberobello', 'brown', 60, [4, 20, 60, 180, 320, 450]),        // 3
-    { type: 'tax', name: 'Tassa di soggiorno', amount: 200 },          // 4
-    { type: 'station', name: 'Milano Centrale', price: 200 },          // 5
-    st('Cinque Terre', 'lblue', 100, [6, 30, 90, 270, 400, 550]),      // 6
-    { type: 'fortuna', name: 'Fortuna' },                              // 7
-    st('Lago di Como', 'lblue', 100, [6, 30, 90, 270, 400, 550]),      // 8
-    st('Portofino', 'lblue', 120, [8, 40, 100, 300, 450, 600]),        // 9
-    { type: 'jail', name: 'Prigione' },                                // 10
-    st('Assisi', 'pink', 140, [10, 50, 150, 450, 625, 750]),           // 11
-    { type: 'util', name: 'Compagnia Elettrica', price: 150, icon: '💡' }, // 12
-    st('Orvieto', 'pink', 140, [10, 50, 150, 450, 625, 750]),          // 13
-    st('Spoleto', 'pink', 160, [12, 60, 180, 500, 700, 900]),          // 14
-    { type: 'station', name: 'Roma Termini', price: 200 },             // 15
-    st('Bologna', 'orange', 180, [14, 70, 200, 550, 750, 950]),        // 16
-    { type: 'sorpresa', name: 'Sorpresa' },                            // 17
-    st('Parma', 'orange', 180, [14, 70, 200, 550, 750, 950]),          // 18
-    st('Modena', 'orange', 200, [16, 80, 220, 600, 800, 1000]),        // 19
-    { type: 'parking', name: 'Pausa Aperitivo' },                      // 20
-    st('Verona', 'red', 220, [18, 90, 250, 700, 875, 1050]),           // 21
-    { type: 'fortuna', name: 'Fortuna' },                              // 22
-    st('Padova', 'red', 220, [18, 90, 250, 700, 875, 1050]),           // 23
-    st('Trieste', 'red', 240, [20, 100, 300, 750, 925, 1100]),         // 24
-    { type: 'station', name: 'Napoli Centrale', price: 200 },          // 25
-    st('Siena', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),        // 26
-    st('Lucca', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),        // 27
-    { type: 'util', name: 'Acquedotto', price: 150, icon: '🚰' },      // 28
-    st('Pisa', 'yellow', 280, [24, 120, 360, 850, 1025, 1200]),        // 29
-    { type: 'gotojail', name: 'Vai in prigione' },                     // 30
-    st('Capri', 'green', 300, [26, 130, 390, 900, 1100, 1275]),        // 31
-    st('Positano', 'green', 300, [26, 130, 390, 900, 1100, 1275]),     // 32
-    { type: 'sorpresa', name: 'Sorpresa' },                            // 33
-    st('Amalfi', 'green', 320, [28, 150, 450, 1000, 1200, 1400]),      // 34
-    { type: 'station', name: 'Firenze SMN', price: 200 },              // 35
-    { type: 'fortuna', name: 'Fortuna' },                              // 36
-    st('Venezia', 'blue', 350, [35, 175, 500, 1100, 1300, 1500]),      // 37
-    { type: 'tax', name: 'Shopping di lusso', amount: 100 },           // 38
-    st('Roma', 'blue', 400, [50, 200, 600, 1400, 1700, 2000]),         // 39
-  ];
+  // tutte le caselle con nome interno (id): i tabelloni sono liste di queste
+  const SQ = {
+    go: { id: 'go', type: 'go', name: 'Partenza' },
+    sassi: st('sassi', 'I Sassi', 'brown', 60, [2, 10, 30, 90, 160, 250]),
+    albero: st('albero', 'Alberobello', 'brown', 60, [4, 20, 60, 180, 320, 450]),
+    tassa: { id: 'tassa', type: 'tax', name: 'Tassa di soggiorno', amount: 200 },
+    milano: stn('milano', 'Milano Centrale'),
+    cinque: st('cinque', 'Cinque Terre', 'lblue', 100, [6, 30, 90, 270, 400, 550]),
+    como: st('como', 'Lago di Como', 'lblue', 100, [6, 30, 90, 270, 400, 550]),
+    portofino: st('portofino', 'Portofino', 'lblue', 120, [8, 40, 100, 300, 450, 600]),
+    jail: { id: 'jail', type: 'jail', name: 'Prigione' },
+    assisi: st('assisi', 'Assisi', 'pink', 140, [10, 50, 150, 450, 625, 750]),
+    elettrica: ut('elettrica', 'Compagnia Elettrica', '💡'),
+    orvieto: st('orvieto', 'Orvieto', 'pink', 140, [10, 50, 150, 450, 625, 750]),
+    spoleto: st('spoleto', 'Spoleto', 'pink', 160, [12, 60, 180, 500, 700, 900]),
+    termini: stn('termini', 'Roma Termini'),
+    bologna: st('bologna', 'Bologna', 'orange', 180, [14, 70, 200, 550, 750, 950]),
+    parma: st('parma', 'Parma', 'orange', 180, [14, 70, 200, 550, 750, 950]),
+    modena: st('modena', 'Modena', 'orange', 200, [16, 80, 220, 600, 800, 1000]),
+    parking: { id: 'parking', type: 'parking', name: 'Pausa Aperitivo' },
+    verona: st('verona', 'Verona', 'red', 220, [18, 90, 250, 700, 875, 1050]),
+    padova: st('padova', 'Padova', 'red', 220, [18, 90, 250, 700, 875, 1050]),
+    trieste: st('trieste', 'Trieste', 'red', 240, [20, 100, 300, 750, 925, 1100]),
+    napoli: stn('napoli', 'Napoli Centrale'),
+    siena: st('siena', 'Siena', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
+    lucca: st('lucca', 'Lucca', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
+    acquedotto: ut('acquedotto', 'Acquedotto', '🚰'),
+    pisa: st('pisa', 'Pisa', 'yellow', 280, [24, 120, 360, 850, 1025, 1200]),
+    gotojail: { id: 'gotojail', type: 'gotojail', name: 'Vai in prigione' },
+    capri: st('capri', 'Capri', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
+    positano: st('positano', 'Positano', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
+    amalfi: st('amalfi', 'Amalfi', 'green', 320, [28, 150, 450, 1000, 1200, 1400]),
+    firenze: stn('firenze', 'Firenze SMN'),
+    venezia: st('venezia', 'Venezia', 'blue', 350, [35, 175, 500, 1100, 1300, 1500]),
+    shopping: { id: 'shopping', type: 'tax', name: 'Shopping di lusso', amount: 100 },
+    roma: st('roma', 'Roma', 'blue', 400, [50, 200, 600, 1400, 1700, 2000]),
+    // --- solo tabellone lungo ---
+    trento: st('trento', 'Trento', 'teal', 130, [9, 45, 135, 400, 560, 700]),
+    bolzano: st('bolzano', 'Bolzano', 'teal', 130, [9, 45, 135, 400, 560, 700]),
+    cortina: st('cortina', 'Cortina', 'teal', 150, [11, 55, 160, 470, 650, 800]),
+    palermo: st('palermo', 'Palermo', 'violet', 240, [19, 95, 275, 725, 900, 1075]),
+    taormina: st('taormina', 'Taormina', 'violet', 240, [19, 95, 275, 725, 900, 1075]),
+    cefalu: st('cefalu', 'Cefalù', 'violet', 260, [21, 105, 310, 775, 950, 1125]),
+    torino: stn('torino', 'Torino Porta Nuova'),
+    bari: stn('bari', 'Bari Centrale'),
+    rete: ut('rete', 'Rete Internet', '📶'),
+    casino: { id: 'casino', type: 'casino', name: 'Casinò', icon: '🎰' },
+    ruota: { id: 'ruota', type: 'wheel', name: 'Ruota della fortuna', icon: '🎡' },
+    mercato: { id: 'mercato', type: 'market', name: 'Mercato degli Assi', icon: '🃏' },
+    teletrasporto: { id: 'teletrasporto', type: 'teleport', name: 'Teletrasporto', icon: '🌀' },
+    relax: { id: 'relax', type: 'relax', name: 'Giornata di relax', icon: '🧖' },
+    terme: { id: 'terme', type: 'tax', name: 'Terme di lusso', amount: 75 },
+    bonus: { id: 'bonus', type: 'bonus', name: 'Premio di città', icon: '🏆' },
+  };
+  const ids = (list) => list.map((x) => (typeof x === 'string' ? SQ[x] : x));
+  const BOARD40 = ids(['go', 'sassi', SORP, 'albero', 'tassa', 'milano', 'cinque', FORT, 'como', 'portofino',
+    'jail', 'assisi', 'elettrica', 'orvieto', 'spoleto', 'termini', 'bologna', SORP, 'parma', 'modena',
+    'parking', 'verona', FORT, 'padova', 'trieste', 'napoli', 'siena', 'lucca', 'acquedotto', 'pisa',
+    'gotojail', 'capri', 'positano', SORP, 'amalfi', 'firenze', FORT, 'venezia', 'shopping', 'roma']);
+  const BOARD60 = ids(['go', 'sassi', SORP, 'albero', 'tassa', 'milano', 'cinque', FORT, 'como', 'portofino',
+    'casino', 'trento', 'bolzano', IMPR, 'cortina', 'torino',
+    'jail', 'assisi', 'elettrica', 'orvieto', 'spoleto', 'ruota', 'termini', 'bologna', SORP, 'parma', 'modena', 'terme', 'mercato', 'relax',
+    'parking', 'verona', FORT, 'padova', 'trieste', 'teletrasporto', 'napoli', 'siena', 'lucca', 'palermo', 'acquedotto', 'pisa', 'taormina', IMPR, 'cefalu', 'bari',
+    'gotojail', 'rete', 'bonus', 'capri', 'positano', SORP, 'amalfi', 'firenze', SORP, FORT, 'venezia', 'shopping', IMPR, 'roma']);
+  // ogni tabellone: colonne x righe (i quattro angoli sono 0, cols-1, ...)
+  const BOARDS = {
+    40: { size: 40, cols: 11, rows: 11, squares: BOARD40, label: 'Classico (40 caselle)' },
+    60: { size: 60, cols: 17, rows: 15, squares: BOARD60, label: 'Lungo (60 caselle)' },
+  };
+  const BOARD = BOARD40; // compatibilità
 
-  // {n} nei testi viene sostituito col nome (del tema scelto) della casella n
+  // {chiave} nei testi viene sostituito col nome (del tema scelto) della casella con quell'id
   const CARDS = {
     fortuna: [
-      { text: 'Avanza fino alla Partenza e ritira €200.', fx: 'moveTo', idx: 0 },
-      { text: 'Biglietto in prima classe per {39}: avanza fin lì.', fx: 'moveTo', idx: 39 },
-      { text: 'Weekend a {6}: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 6 },
-      { text: 'Prendi il treno per {5}. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 5 },
+      { text: 'Avanza fino alla Partenza e ritira €200.', fx: 'moveTo', key: 'go' },
+      { text: 'Biglietto in prima classe per {roma}: avanza fin lì.', fx: 'moveTo', key: 'roma' },
+      { text: 'Weekend a {cinque}: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', key: 'cinque' },
+      { text: 'Prendi il treno per {milano}. Se passi dalla Partenza ritira €200.', fx: 'moveTo', key: 'milano' },
+      { text: 'Vacanza a {venezia}: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', key: 'venezia' },
       { text: 'Avanza alla stazione più vicina. Se è di qualcuno, paga il doppio dell\'affitto.', fx: 'nearest', kind: 'station' },
       { text: 'Avanza alla stazione più vicina. Se è di qualcuno, paga il doppio dell\'affitto.', fx: 'nearest', kind: 'station' },
       { text: 'Avanza alla società più vicina. Se è di qualcuno, tira i dadi e paga 10 volte il risultato.', fx: 'nearest', kind: 'util' },
@@ -78,9 +111,20 @@
       { text: 'Vai direttamente in prigione. Non passare dalla Partenza.', fx: 'jail' },
       { text: 'Ripara i tuoi immobili: €25 per ogni casa, €100 per ogni albergo.', fx: 'repairs', house: 25, hotel: 100 },
       { text: 'Multa per eccesso di velocità: paga €15.', fx: 'pay', amount: 15 },
-      { text: 'Sei eletto presidente del condominio: paga €50 a ogni giocatrice.', fx: 'payEach', amount: 50 },
+      { text: 'Sei eletta presidente del condominio: paga €50 a ogni giocatrice.', fx: 'payEach', amount: 50 },
       { text: '🏹 Robin Hood! Prendi €100 alla giocatrice più ricca e dalli alla più povera.', fx: 'robinHood' },
-      { text: 'Vacanza a {37}: avanza fin lì. Se passi dalla Partenza ritira €200.', fx: 'moveTo', idx: 37 },
+      { text: '🛡️ Una buona stella ti protegge: ricevi uno scudo.', fx: 'giveShield' },
+      { text: '🏃 Corri alla prossima proprietà libera!', fx: 'goFree' },
+      { text: '🎤 Vinci un talent: ogni giocatrice ti dà €20.', fx: 'collectEach', amount: 20 },
+      { text: '🍀 Trovi un quadrifoglio: ritira €75.', fx: 'collect', amount: 75 },
+      { text: '🚁 Un elicottero ti porta in una casella a caso!', fx: 'teleportRand' },
+      { text: '✖️2 Ricevi il doppio affitto per il prossimo affitto che incassi.', fx: 'giveX2' },
+      { text: '🥳 Festa di quartiere: paga €30 e pesca un asso.', fx: 'payAce', amount: 30 },
+      { text: 'Rimborso delle tasse: ritira €60.', fx: 'collect', amount: 60 },
+      { text: '🎣 Pesca fortunata: ritira €40.', fx: 'collect', amount: 40 },
+      { text: '🤝 Fai una donazione: dai €25 alla giocatrice più povera.', fx: 'giveToPoorest', amount: 25 },
+      { text: '🕶️ Fai il turista: salta il prossimo turno ma ritira €100.', fx: 'relaxCard', amount: 100 },
+      { text: '🎲 Tira ancora i dadi dopo questo turno!', fx: 'extraRoll' },
     ],
     sorpresa: [
       { text: 'Errore bancario a tuo favore: ritira €200.', fx: 'collect', amount: 200 },
@@ -99,6 +143,41 @@
       { text: 'Eredità dalla zia: ritira €100.', fx: 'collect', amount: 100 },
       { text: '🔀 Che confusione! Scambi il posto con una giocatrice a caso.', fx: 'swapRandom' },
       { text: 'Multa per sosta vietata: paga €20.', fx: 'pay', amount: 20 },
+      { text: '🎁 Regalo inaspettato: ritira €150.', fx: 'collect', amount: 150 },
+      { text: '💼 Bonus di fine anno: ritira €120.', fx: 'collect', amount: 120 },
+      { text: '📈 Investimento riuscito: ritira il 10% dei tuoi soldi.', fx: 'collectPct', pct: 10 },
+      { text: '🧾 Arriva il commercialista: paga il 10% dei tuoi soldi.', fx: 'payPct', pct: 10 },
+      { text: '👮 Una soffiata! Manda una giocatrice a caso in prigione.', fx: 'jailOther' },
+      { text: '🍕 Cena offerta da te: paga €20 a ogni giocatrice.', fx: 'payEach', amount: 20 },
+      { text: '🚀 Teletrasporto! Vai dove vuoi al prossimo turno… per ora ritira €50.', fx: 'collect', amount: 50 },
+      { text: '🛡️ Assicurazione scudo: ricevi uno scudo.', fx: 'giveShield' },
+      { text: '🔮 Un indovino ti dice di andare avanti di 5 caselle.', fx: 'moveBy', n: 5 },
+      { text: '🧸 Vinci un peluche gigante: pesca un asso.', fx: 'giveAce' },
+    ],
+    // mazzo "Imprevisti": per lo più guai! (solo tabellone lungo)
+    imprevisto: [
+      { text: '🌩️ Grandinata sul tetto: perdi una casa (o paga €80 se non ne hai).', fx: 'stormHouse', amount: 80 },
+      { text: '🕳️ Ti cade il portafoglio: paga €60.', fx: 'pay', amount: 60 },
+      { text: '🧯 Incendio in cucina: paga €120.', fx: 'pay', amount: 120 },
+      { text: '🥷 Ladri in casa! Perdi un asso (o paga €50).', fx: 'loseAce', amount: 50 },
+      { text: '🚓 Controllo della finanza: paga €150.', fx: 'pay', amount: 150 },
+      { text: '🌊 Allagamento: paga €40 per ogni casa e €100 per ogni albergo.', fx: 'repairs', house: 40, hotel: 100 },
+      { text: '😴 Ti addormenti: salta il prossimo turno.', fx: 'skipSelf' },
+      { text: '🦵 Ti rompi una gamba: paga €90 di ospedale.', fx: 'pay', amount: 90 },
+      { text: '🧑‍⚖️ Causa legale: paga €200.', fx: 'pay', amount: 200 },
+      { text: '📉 Crollo in borsa: paga il 15% dei tuoi soldi.', fx: 'payPct', pct: 15 },
+      { text: '🚗 Auto in panne: torna indietro di 4 caselle.', fx: 'moveBy', n: -4 },
+      { text: '🤡 Scherzo di cattivo gusto: vai in prigione.', fx: 'jail' },
+      { text: '🍝 Offri da mangiare a tutte: paga €30 a ogni giocatrice.', fx: 'payEach', amount: 30 },
+      { text: '🧨 Petardo in tasca! Paga €70.', fx: 'pay', amount: 70 },
+      { text: '🦠 Influenza: paga €50 e salta il prossimo turno.', fx: 'flu', amount: 50 },
+      { text: '🏚️ Terremoto: perdi una casa (o paga €100 se non ne hai).', fx: 'stormHouse', amount: 100 },
+      { text: '💸 Multa per rumore: paga €35.', fx: 'pay', amount: 35 },
+      { text: '🐕 Il cane ti morde il vicino: paga €45.', fx: 'pay', amount: 45 },
+      { text: '🔧 Il tubo scoppia: paga €85.', fx: 'pay', amount: 85 },
+      { text: '🌪️ Una tromba d\'aria ti porta in una casella a caso!', fx: 'teleportRand' },
+      { text: '🎭 Ti rubano lo scudo! (e se non ce l\'hai, paga €40)', fx: 'loseShield', amount: 40 },
+      { text: '🚧 Strade chiuse: torna alla Partenza senza incassare nulla.', fx: 'toStart' },
     ],
   };
 
@@ -124,19 +203,20 @@
   };
 
   // ---------- temi del tabellone: cambiano solo i nomi ----------
-  const T = (arr) => { const o = {}; [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39, 4, 38, 10, 20, 30].forEach((i, k) => { o[i] = arr[k]; }); return o; };
+  const T = (arr, extra) => { const o = {}; [1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 35, 37, 39, 4, 38, 10, 20, 30].forEach((i, k) => { o[BOARD40[i].id] = arr[k]; }); return Object.assign(o, extra || {}); };
   const THEMES = {
     italia: { label: '🇮🇹 Italia', names: null },
     mondo: {
       label: '🌍 Giro del mondo',
-      names: T(['Marrakech', 'Istanbul', 'Gare du Nord', 'Bangkok', 'Rio de Janeiro', 'Sydney', 'Praga', 'Centrale Solare', 'Vienna', 'Amsterdam', "King's Cross", 'Berlino', 'Madrid', 'Barcellona', 'Mosca', 'Dubai', 'Singapore', 'Grand Central', 'Toronto', 'Seul', 'Dissalatore', 'Shanghai', 'San Francisco', 'Londra', 'Parigi', 'Tokyo Station', 'New York', 'Hong Kong', 'Tassa sul bagaglio', 'Duty Free di lusso', 'Dogana', 'Lounge VIP', 'Vai in dogana']),
+      names: T(['Marrakech', 'Istanbul', 'Gare du Nord', 'Bangkok', 'Rio de Janeiro', 'Sydney', 'Praga', 'Centrale Solare', 'Vienna', 'Amsterdam', "King's Cross", 'Berlino', 'Madrid', 'Barcellona', 'Mosca', 'Dubai', 'Singapore', 'Grand Central', 'Toronto', 'Seul', 'Dissalatore', 'Shanghai', 'San Francisco', 'Londra', 'Parigi', 'Tokyo Station', 'New York', 'Hong Kong', 'Tassa sul bagaglio', 'Duty Free di lusso', 'Dogana', 'Lounge VIP', 'Vai in dogana'], { trento: 'Oslo', bolzano: 'Stoccolma', cortina: 'Helsinki', palermo: 'Lisbona', taormina: 'Atene', cefalu: 'Malta', torino: 'Gare de Lyon', bari: 'Hauptbahnhof', rete: 'Wi-Fi Globale', casino: 'Las Vegas', ruota: 'Luna Park', mercato: 'Bazar', teletrasporto: 'Portale', relax: 'Spa', terme: 'Resort di lusso', bonus: 'Premio Nobel' }),
     },
     gola: {
       label: '🍕 Gola',
-      names: T(['Pane e Olio', 'Caffè Corretto', 'Autogrill Nord', 'Gelato Pistacchio', 'Spritz', 'Tiramisù', 'Pizza Margherita', 'Forno a Legna', 'Lasagne', 'Carbonara', 'Autogrill Sud', 'Cannolo', 'Arancino', 'Panettone', 'Tartufo Bianco', 'Bistecca', 'Parmigiano', 'Trattoria Centro', 'Mozzarella', 'Prosciutto', 'Cantina', 'Aceto Balsamico', 'Barolo', 'Champagne', 'Caviale', 'Mercato Rionale', 'Tartufo Nero', 'Aragosta', 'Mancia obbligatoria', 'Cena da chef', 'Digiuno', 'Aperitivo', 'Vai a dieta']),
+      names: T(['Pane e Olio', 'Caffè Corretto', 'Autogrill Nord', 'Gelato Pistacchio', 'Spritz', 'Tiramisù', 'Pizza Margherita', 'Forno a Legna', 'Lasagne', 'Carbonara', 'Autogrill Sud', 'Cannolo', 'Arancino', 'Panettone', 'Tartufo Bianco', 'Bistecca', 'Parmigiano', 'Trattoria Centro', 'Mozzarella', 'Prosciutto', 'Cantina', 'Aceto Balsamico', 'Barolo', 'Champagne', 'Caviale', 'Mercato Rionale', 'Tartufo Nero', 'Aragosta', 'Mancia obbligatoria', 'Cena da chef', 'Digiuno', 'Aperitivo', 'Vai a dieta'], { trento: 'Speck', bolzano: 'Strudel', cortina: 'Polenta', palermo: 'Cassata', taormina: 'Granita', cefalu: 'Pasta alla Norma', torino: 'Gianduiotto', bari: 'Orecchiette', rete: 'Delivery', casino: 'Bisca', ruota: 'Giostra dei dolci', mercato: 'Mercato del gusto', teletrasporto: 'Teleporto', relax: 'Sonnellino', terme: 'Buffet extra', bonus: 'Stella Michelin' }),
     },
   };
-  const nameOf = (theme, i) => { const t = THEMES[theme]; return (t && t.names && t.names[i]) || BOARD[i].name; };
+  // nameOf(tema, casella) – la casella è un oggetto del tabellone (o il suo id)
+  const nameOf = (theme, sq) => { const id = typeof sq === 'string' ? sq : sq && sq.id; const t = THEMES[theme]; return (t && t.names && id && t.names[id]) || (sq && sq.name) || (id && SQ[id] && SQ[id].name) || ''; };
 
   const TOKENS = ['🚗', '🎩', '🐶', '🐱', '🚀', '👑', '🦄', '🍕', '🛵', '🍷', '🌸', '⚽'];
   const COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#d81b60', '#6d4c41'];
@@ -144,11 +224,24 @@
 
   // ---------- spiegazioni delle regole (usate da telefoni e tabellone) ----------
   const BASICS = [
-    '🎲 Tira i dadi e muovi la pedina. Se arrivi su una proprietà libera puoi comprarla; se non la compri parte un\'asta.',
-    '💰 Se arrivi su una proprietà di un\'altra giocatrice, le paghi l\'affitto. Con tutto il colore e con le case l\'affitto sale.',
-    '🏠 Quando hai tutte le proprietà di un colore puoi costruire case e alberghi dalla scheda Proprietà.',
-    '🤝 Puoi scambiare soldi e proprietà con le altre in qualsiasi momento, dalla scheda Scambi.',
-    '🏁 Se finisci i soldi e non puoi pagare, esci dal gioco. Vince l\'ultima rimasta (o chi ha più patrimonio alla fine dei giri scelti).',
+    '1️⃣ <b>Tira i dadi.</b> La tua pedina cammina da sola sul tabellone.',
+    '2️⃣ <b>Casella libera?</b> Puoi comprarla. Se non vuoi parte l\'asta, oppure la offri a una sola giocatrice a un prezzo tuo.',
+    '3️⃣ <b>Casella di un\'altra?</b> Paghi l\'affitto a lei. Tasse e multe vanno alla banca (o al piatto dell\'aperitivo).',
+    '4️⃣ <b>Hai TUTTE le caselle dello stesso colore?</b> L\'affitto raddoppia subito e puoi costruire: 🏠 case, poi 🏨 albergo, poi 🗽 Monumento (l\'affitto più alto di tutti). Si costruisce dal tab Proprietà.',
+    '5️⃣ <b>Quando hai finito</b> il turno passa da solo dopo qualche secondo (puoi anche premere Fine turno, o fermare il conto alla rovescia se devi ancora fare qualcosa).',
+    '🤝 <b>Scambi:</b> in qualsiasi momento puoi scambiare soldi e proprietà con un\'altra dal tab Scambi.',
+    '🏁 <b>Come si vince:</b> se non riesci a pagare esci dal gioco. Vince l\'ultima rimasta, o chi ha più patrimonio quando finiscono i giri scelti.',
+  ];
+  // caselle speciali del tabellone lungo
+  const SPECIALS = [
+    '🎰 <b>Casinò</b>: tira un dado. 1 perdi €150 · 2 perdi €50 · 3 niente · 4 vinci €50 · 5 vinci €150 · 6 vinci €300.',
+    '🎡 <b>Ruota della fortuna</b>: la ruota decide… soldi, un asso, uno scudo, ma anche guai!',
+    '🃏 <b>Mercato degli Assi</b>: prendi un asso gratis.',
+    '🌀 <b>Teletrasporto</b>: vieni sparata in una casella a caso.',
+    '🧖 <b>Relax</b>: incassi €100 ma salti un turno.',
+    '🏆 <b>Premio di città</b>: incassi €100.',
+    '⚡ <b>Imprevisto</b>: pesca una carta quasi sempre sfortunata (danni, multe, turni persi).',
+    '🍀 <b>Fortuna</b> e 🎁 <b>Sorpresa</b>: carte con soldi, spostamenti e sorprese.',
   ];
   const RULES = {
     speedDie: { icon: '🎲', title: 'Dado matto', short: 'Un terzo dado arancione con effetti speciali.',
@@ -158,14 +251,14 @@
     events: { icon: '🎪', title: 'Eventi di città', short: 'A ogni giro cambia una regola per tutte.',
       long: ['Esempi: Partenza d\'oro (si incassa il doppio), Saldi (-20%), Sciopero treni (le stazioni non incassano), Tregua (niente affitti), Festa di un colore (affitti doppi), Bonus €50 per tutte.', 'L\'evento attuale è sempre scritto sul tabellone.'] },
     cheat: { icon: '🕵️', title: 'Furbetti', short: 'Si può barare di nascosto… e si può essere scoperte.',
-      long: ['Nel tuo turno puoi prendere €100 dalla banca di nascosto.', 'Le altre possono accusarti: se avevi barato paghi €200 a chi ti ha scoperta, se era un\'accusa a vuoto paga €50 lei a te.', 'I soldi di tutte restano segreti sul tabellone.'] },
+      long: ['Solo a inizio turno, prima di tirare i dadi, puoi prendere €100 dalla banca di nascosto: sul tabellone non si vede nulla.', 'Le altre possono accusarti: se avevi barato paghi €200 a chi ti ha scoperta, se era un\'accusa a vuoto paga €50 lei a te.', 'I soldi di tutte restano segreti sul tabellone.'] },
     banker: { icon: '🏦', title: 'Banchiere furbo', short: 'Uno di voi fa il banchiere e paga a mano… e può fregarvi.',
       long: ['A sorte uno diventa banchiere (gioca anche lui). I soldi della banca (Partenza e carte) li paga lui a mano.', 'Può dare tutto, tre quarti, metà o niente: quello che trattiene lo tiene per sé, di nascosto.', 'Se sospetti di aver ricevuto meno, accusalo: se ha davvero trattenuto, restituisce il doppio; se era onesto, paghi €50 tu. Una accusa a giro.', 'I soldi di tutte restano segreti sul tabellone.'] },
     freeParking: { icon: '🍹', title: 'Piatto dell\'aperitivo', short: 'Tasse e multe finiscono al centro.',
       long: ['Chi si ferma sulla Pausa Aperitivo si prende tutto il piatto.'] },
     auctions: { icon: '🔨', title: 'Aste', short: 'Se non compri, la proprietà va all\'asta.',
-      long: ['Tutte possono rilanciare (+10, +50, +100). Vince l\'offerta più alta.'] },
+      long: ['Tutte possono rilanciare (+10, +50, +100). Vince l\'offerta più alta. In alternativa chi è arrivata sulla proprietà può offrirla a una sola giocatrice a un prezzo suo.'] },
   };
 
-  return { BASICS, RULES, TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
+  return { BASICS, SPECIALS, RULES, TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, BOARDS, SQ, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
 });

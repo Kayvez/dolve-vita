@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const D = window.GAME_DATA;
-  const BOARD = D.BOARD;
+  let BOARD = D.BOARDS[60].squares, GC = 17, GR = 15, curSize = 0;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
   const eur = (n) => '€' + n;
@@ -17,7 +17,7 @@
   const lastOwner = {};
   const cashShown = {};
 
-  const nm = (i) => D.nameOf(S ? S.settings.theme : 'italia', i);
+  const nm = (i) => D.nameOf(S ? S.settings.theme : 'italia', BOARD[i]);
 
   async function post(path, body) {
     try {
@@ -28,18 +28,44 @@
 
   // ---------- suoni ----------
   let actx = null;
-  let soundOn = localStorage.getItem('dv_sound') === '1';
+  let soundOn = localStorage.getItem('dv_sound') !== '0';
+  // iPad/iPhone: l'audio parte solo dopo un tocco e, con il tasto muto, solo se si "aggancia" un elemento <audio>.
+  let silentEl = null;
+  function silentWavUrl() {
+    const n = 8000, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
   function ensureCtx() {
-    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return false; } }
-    if (actx.state === 'suspended') actx.resume();
+    if (!actx) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); actx.onstatechange = updateBanner; } catch (e) { return false; }
+    }
+    if (actx.state === 'suspended' || actx.state === 'interrupted') actx.resume();
+    if (!silentEl) {
+      try { silentEl = new Audio(silentWavUrl()); silentEl.loop = true; silentEl.setAttribute('playsinline', ''); } catch (e) { silentEl = null; }
+    }
+    if (silentEl && silentEl.paused) silentEl.play().catch(() => {});
     return true;
+  }
+  function unlockAudio() {
+    if (!soundOn) return;
+    ensureCtx();
+    setTimeout(updateBanner, 300);
+  }
+  function updateBanner() {
+    const b = $('#soundBanner');
+    if (!b) return;
+    b.style.display = soundOn && (!actx || actx.state !== 'running') ? 'block' : 'none';
   }
   function tone(freq, t0, dur, type, vol) {
     if (!actx) return;
     const o = actx.createOscillator(), g = actx.createGain();
     o.type = type || 'sine'; o.frequency.value = freq;
     const t = actx.currentTime + t0;
-    g.gain.setValueAtTime(vol || 0.14, t);
+    g.gain.setValueAtTime(Math.min(0.5, (vol || 0.14) * 1.8), t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(actx.destination);
     o.start(t); o.stop(t + dur + 0.03);
@@ -69,7 +95,7 @@
     gain: () => { tone(880, 0, 0.08, 'sine', 0.08); tone(1175, 0.07, 0.12, 'sine', 0.08); },
     lose: () => { tone(330, 0, 0.1, 'triangle', 0.08); tone(247, 0.08, 0.14, 'triangle', 0.08); },
   };
-  function sfx(kind) { if (soundOn && ensureCtx() && SFX[kind]) SFX[kind](); }
+  function sfx(kind) { if (soundOn && ensureCtx() && actx.state === 'running' && SFX[kind]) SFX[kind](); }
 
   // ---------- coriandoli ----------
   const cv = $('#confetti');
@@ -105,21 +131,26 @@
 
   // ---------- struttura del tabellone ----------
   function gridPos(i) {
-    if (i <= 10) return [11, 11 - i];
-    if (i <= 19) return [21 - i, 1];
-    if (i === 20) return [1, 1];
-    if (i <= 29) return [1, i - 19];
-    if (i === 30) return [1, 11];
-    return [i - 29, 11];
+    const N = BOARD.length, bot = GC - 1, left = bot + GR - 1, top = left + GC - 1;
+    if (i <= bot) return [GR, GC - i];
+    if (i <= left) return [GR - (i - bot), 1];
+    if (i <= top) return [1, 1 + (i - left)];
+    return [1 + (i - top), GC];
   }
-  const sideOf = (i) => (i % 10 === 0 ? 'corner' : i < 10 ? 'bottom' : i < 20 ? 'left' : i < 30 ? 'top' : 'right');
+  const sideOf = (i) => {
+    const bot = GC - 1, left = bot + GR - 1, top = left + GC - 1;
+    if (i === 0 || i === bot || i === left || i === top) return 'corner';
+    return i < bot ? 'bottom' : i < left ? 'left' : i < top ? 'top' : 'right';
+  };
   function iconOf(sq) {
-    return { go: '➡️', jail: '🚔', parking: '🍹', gotojail: '👮', fortuna: '🍀', sorpresa: '🎁', tax: '💸', station: '🚆' }[sq.type] || sq.icon || '';
+    return { go: '➡️', jail: '🚔', parking: '🍹', gotojail: '👮', fortuna: '🍀', sorpresa: '🎁', imprevisto: '⚡', tax: '💸', station: '🚆', casino: '🎰', wheel: '🎡', market: '🃏', teleport: '🌀', relax: '🧖', bonus: '🏆' }[sq.type] || sq.icon || '';
   }
 
   function buildBoard() {
     const el = $('#board');
     el.innerHTML = '';
+    el.style.gridTemplateColumns = `1.5fr repeat(${GC - 2}, 1fr) 1.5fr`;
+    el.style.gridTemplateRows = `1.5fr repeat(${GR - 2}, 1fr) 1.5fr`;
     BOARD.forEach((sq, i) => {
       const d = document.createElement('div');
       const [r, c] = gridPos(i);
@@ -132,11 +163,14 @@
       if (sq.price) price = `<div class="price">${eur(sq.price)}</div>`;
       if (sq.type === 'tax') price = `<div class="price">paga ${eur(sq.amount)}</div>`;
       if (sq.type === 'go') price = `<div class="price">+${eur(200)}</div>`;
+      const BL = { casino: 'tira il dado: vinci o perdi', wheel: 'gira la ruota!', market: 'un asso gratis', teleport: 'sparata altrove', relax: '+€100 ma salti un turno', bonus: '+€100', imprevisto: 'attenta ai guai', fortuna: 'pesca una carta', sorpresa: 'pesca una carta', parking: 'prendi il piatto', jail: 'solo in visita', gotojail: 'dritta in cella' }[sq.type];
+      if (BL && !price) price = `<div class="price sub">${BL}</div>`;
       d.innerHTML = `${band}<div class="body"><div class="icon">${iconOf(sq)}</div><div class="name"></div>${price}</div><div class="owner"></div>`;
       el.appendChild(d);
     });
     const c = document.createElement('div');
     c.id = 'center';
+    c.style.gridArea = `2 / 2 / ${GR} / ${GC}`;
     c.innerHTML = `
       <div id="title">${D.TITLE}</div>
       <div id="subtitle">il gioco delle serate</div>
@@ -159,8 +193,13 @@
     const w = innerWidth, h = innerHeight;
     const portrait = w < h * 1.25;
     $('#app').classList.toggle('portrait', portrait);
-    const b = portrait ? Math.min(w - 16, h - 190) : Math.min(h - 16, w - 16 - 14 - 270);
-    document.documentElement.style.setProperty('--b', Math.max(320, b) + 'px');
+    const availW = portrait ? w - 16 : w - 16 - 14 - 230;
+    const availH = portrait ? h - (GC > 11 ? 230 : 190) : h - 16;
+    const u = Math.max(18, Math.min(availW / (GC + 1), availH / (GR + 1)));
+    const root = document.documentElement.style;
+    root.setProperty('--u', u + 'px');
+    root.setProperty('--bw', (u * (GC + 1)) + 'px');
+    root.setProperty('--bh', (u * (GR + 1)) + 'px');
     sizeCanvas();
     requestAnimationFrame(() => { if (S) relayoutTokens(true); });
   }
@@ -224,6 +263,7 @@
     if (!t) {
       t = document.createElement('div');
       t.className = 'tok';
+      t.dataset.n = p.name;
       t.style.setProperty('--c', p.color);
       t.innerHTML = `<div class="ti">${p.emoji}</div>`;
       $('#tokLayer').appendChild(t);
@@ -292,9 +332,10 @@
       if (shown[p.id] === undefined) { setShown(p, p.pos, 'init'); continue; }
       const cur = shown[p.id];
       if (cur === p.pos) continue;
-      const f = (p.pos - cur + 40) % 40, b = 40 - f;
-      if (!p.inJail && f <= 12) { const nx = (cur + 1) % 40; setShown(p, nx, 'step'); flashSquare(nx, nx === p.pos ? 'arrive' : 'pass'); }
-      else if (!p.inJail && b <= 3) { const nx = (cur + 39) % 40; setShown(p, nx, 'step'); flashSquare(nx, nx === p.pos ? 'arrive' : 'pass'); }
+      const NN = BOARD.length;
+      const f = (p.pos - cur + NN) % NN, b = NN - f;
+      if (!p.inJail && f <= 12) { const nx = (cur + 1) % NN; setShown(p, nx, 'step'); flashSquare(nx, nx === p.pos ? 'arrive' : 'pass'); }
+      else if (!p.inJail && b <= 3) { const nx = (cur + NN - 1) % NN; setShown(p, nx, 'step'); flashSquare(nx, nx === p.pos ? 'arrive' : 'pass'); }
       else { setShown(p, p.pos, 'jump'); flashSquare(p.pos, 'arrive'); sfx('move'); }
     }
     if (pendingCard && settled()) { const c = pendingCard; pendingCard = null; setTimeout(() => { if (S && S.status === 'playing') showCard(c); }, 350); }
@@ -304,18 +345,21 @@
   // ---------- annunci a tutto schermo ----------
   const annQ = [];
   let annBusy = false;
-  function announce(icon, title, text, cls) { annQ.push({ icon, title, text, cls }); if (!annBusy) runAnn(); }
+  function announce(icon, title, text, cls, amount) { annQ.push({ icon, title, text, cls, amount }); if (!annBusy) runAnn(); }
   async function runAnn() {
     annBusy = true;
     while (annQ.length) {
       const a = annQ.shift();
       const el = $('#announce');
       if (!el) break;
+      // aspetta che le pedine siano ferme: l'annuncio arriva quando la pedina è arrivata
+      for (let k = 0; k < 40 && !settled(); k++) await wait(200);
       el.className = 'show ' + (a.cls || '');
-      el.innerHTML = `<div class="ai">${a.icon}</div><div class="at">${a.title}</div><div class="ax">${a.text || ''}</div>`;
-      await wait(a.cls === 'big' ? 2800 : 2000);
+      el.innerHTML = `<div class="ai">${a.icon}</div><div class="at">${a.title}</div>${a.amount ? `<div class="aamt">${a.amount}</div>` : ''}<div class="ax">${a.text || ''}</div>`;
+      sfx(a.cls === 'bad' ? 'lose' : a.cls === 'good' ? 'gain' : 'event');
+      await wait(a.cls === 'big' ? 4500 : a.amount ? 4000 : 3200);
       el.className = '';
-      await wait(250);
+      await wait(500);
     }
     annBusy = false;
   }
@@ -359,7 +403,7 @@
       el.classList.toggle('mort', !!pr.mortgaged);
       const h = $('.houses', el);
       if (h) {
-        const html = pr.houses === 5 ? '<span class="h hotel"></span>' : '<span class="h"></span>'.repeat(pr.houses);
+        const html = pr.houses === 6 ? '<span class="h mon">🗽</span>' : pr.houses === 5 ? '<span class="h hotel"></span>' : '<span class="h"></span>'.repeat(pr.houses);
         if (h.innerHTML !== html) { h.innerHTML = html; h.classList.remove('built'); void h.offsetWidth; h.classList.add('built'); }
       }
     });
@@ -449,10 +493,10 @@
       head = `<div class="dh" style="background:${col};color:${textOn(col)}">${nm(idx)}</div>`;
       rows = `<tr><td>Affitto</td><td>${eur(sq.rent[0])}</td></tr><tr><td>Colore completo</td><td>${eur(sq.rent[0] * 2)}</td></tr>`
         + [1, 2, 3, 4].map((n) => `<tr><td>Con ${n} cas${n === 1 ? 'a' : 'e'}</td><td>${eur(sq.rent[n])}</td></tr>`).join('')
-        + `<tr><td>Albergo</td><td>${eur(sq.rent[5])}</td></tr><tr><td>Costruzione</td><td>${eur(sq.houseCost)}</td></tr>`;
+        + `<tr><td>Albergo</td><td>${eur(sq.rent[5])}</td></tr><tr><td>🗽 Monumento</td><td>${eur(Math.round(sq.rent[5] * 1.6 / 10) * 10)}</td></tr><tr><td>Costruzione</td><td>${eur(sq.houseCost)}</td></tr>`;
     } else if (sq.type === 'station') {
       head = `<div class="dh" style="background:#445066;color:#fff">🚆 ${nm(idx)}</div>`;
-      rows = [1, 2, 3, 4].map((n) => `<tr><td>${n} stazion${n === 1 ? 'e' : 'i'}</td><td>${eur(25 * Math.pow(2, n - 1))}</td></tr>`).join('');
+      rows = [1, 2, 3, 4, 5, 6].filter((n) => n <= BOARD.filter((q) => q.type === 'station').length).map((n) => `<tr><td>${n} stazion${n === 1 ? 'e' : 'i'}</td><td>${eur(25 * Math.pow(2, n - 1))}</td></tr>`).join('');
     } else {
       head = `<div class="dh" style="background:#9aa7b8;color:#fff">${sq.icon || ''} ${nm(idx)}</div>`;
       rows = '<tr><td>1 società</td><td>4× dadi</td></tr><tr><td>2 società</td><td>10× dadi</td></tr>';
@@ -462,6 +506,34 @@
     return `<div class="deed">${head}<div class="dp">${eur(price)}${sale}</div><table>${rows}</table>${extra || ''}</div>`;
   }
 
+  // tocca una casella sul tabellone: la scheda compare al centro per qualche secondo
+  let inspect = null, inspectTimer = null;
+  const SQINFO = {
+    go: 'Ogni volta che passi dalla Partenza ricevi €200.',
+    jail: 'Se ci arrivi dal percorso sei solo in visita. Se ci vai davvero: tira doppio, paga €50 o usa la carta per uscire.',
+    gotojail: 'Chi ci finisce va dritta in prigione, senza passare dalla Partenza.',
+    parking: 'Con il Piatto dell\'aperitivo attivo: chi si ferma qui prende tutti i soldi di tasse e multe.',
+    fortuna: 'Pesca una carta Fortuna: di solito va bene… di solito.',
+    sorpresa: 'Pesca una carta Sorpresa: può dare soldi, spostarti o altro.',
+    imprevisto: 'Pesca un Imprevisto: quasi sempre un guaio (danni, multe, turni persi).',
+    tax: 'Paghi la cifra indicata alla banca (o al piatto dell\'aperitivo).',
+    casino: 'Tira un dado: 1 perdi €150, 2 perdi €50, 3 niente, 4 vinci €50, 5 vinci €150, 6 vinci €300.',
+    wheel: 'La ruota decide: soldi, un asso, uno scudo… oppure guai (-€100, turno saltato, teletrasporto).',
+    market: 'Prendi un asso nella manica gratis (se gli assi sono spenti: €50).',
+    teleport: 'Vieni teletrasportata in una casella a caso. Che faccia tosta!',
+    relax: 'Incassi €100 ma salti il prossimo turno.',
+    bonus: 'Premio di città: incassi €100.',
+  };
+  function squareInfoHTML(i) {
+    const sq = BOARD[i], pr = S.props[i];
+    const close = '<div class="ihint">(tocca un\'altra casella o aspetta)</div>';
+    if (pr) {
+      const own = pr.owner ? P(pr.owner) : null;
+      const line = own ? `<div class="iown">${own.emoji} Di ${own.name}${pr.mortgaged ? ' · ipotecata' : pr.houses ? ` · ${pr.houses >= 6 ? '🗽 Monumento' : pr.houses === 5 ? '🏨 albergo' : pr.houses + ' cas' + (pr.houses === 1 ? 'a' : 'e')}` : ''}</div>` : '<div class="iown">Libera: chi ci arriva può comprarla</div>';
+      return `<div class="mainRow">${deedHTML(i)}<div class="auctionBox">${line}${close}</div></div>`;
+    }
+    return `<div class="auctionBox"><div class="big">${iconOf(sq)}</div><div style="font-size:1.5em;font-weight:800">${nm(i)}</div><div style="max-width:24em;margin-top:.3em">${SQINFO[sq.type] || ''}</div>${close}</div>`;
+  }
   function hintFor() {
     const cur = P(S.turn);
     if (!cur) return '';
@@ -506,8 +578,9 @@
           <div class="joinTxt">Oppure apri sul telefono:<br><b>${url.replace(/^https?:\/\//, '')}</b><div class="votehint">🗳️ Ognuna vota le regole dal telefono: vince la maggioranza</div></div></div>
         <div class="vgrid">${FEAT.map(tally).join('')}</div>
         <div class="chips grid2">
-          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}
+          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}${chip(`🗺️ ${st.boardSize === 40 ? 'Classico 40' : 'Lungo 60'}`, 'data-set="boardSize"')}
         </div>
+        ${persistWarn()}
         <div class="lobbyPlayers">${players || '<span style="opacity:.6;font-size:1.2em">Nessuna giocatrice ancora…</span>'}</div>
         <button class="startBtn" id="btnStart" ${S.players.length < 2 ? 'disabled' : ''}>Inizia la partita</button>`;
       return;
@@ -532,6 +605,9 @@
       const a = S.auction;
       const chips = S.players.filter((p) => !p.bankrupt).map((p) => `<span class="chip${a.active.includes(p.id) ? '' : ' off'}">${p.emoji} ${p.name}</span>`).join('');
       html = `<div class="mainRow">${deedHTML(a.idx)}<div class="auctionBox"><div>🔨 Offerta più alta</div><div class="big">${eur(a.high)}</div><div>${a.bidder ? nameOf(a.bidder) : 'nessuna offerta'}</div><div class="chips">${chips}</div></div></div>`;
+    } else if (S.phase === 'sale' && S.sale) {
+      const sl = S.sale;
+      html = `<div class="mainRow">${deedHTML(sl.idx)}<div class="auctionBox"><div>🤝 ${nameOf(sl.from)} offre a</div><div style="font-size:1.6em;font-weight:800">${nameOf(sl.to)}</div><div class="big">${eur(sl.price)}</div><div>aspetta la risposta…</div></div></div>`;
     } else if (S.phase === 'debt' && S.debts.length) {
       const d = S.debts[0];
       html = `<div class="auctionBox"><div style="font-size:1.4em">💸 ${nameOf(d.pid)} deve</div><div class="big">${eur(d.amount)}</div><div>a ${nameOf(d.creditor)} · ${d.reason}</div></div>`;
@@ -542,9 +618,16 @@
     } else if (S.pot) {
       html = `<div class="chip">🍹 Piatto della Pausa Aperitivo: ${eur(S.pot)}</div>`;
     }
+    if (inspect && Date.now() < inspect.until && !['buy', 'auction', 'sale', 'debt', 'choose'].includes(S.phase)) html = squareInfoHTML(inspect.i);
     main.innerHTML = html;
   }
 
+  function persistWarn() {
+    const remoteHost = location.hostname && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    if (info && remoteHost && info.persist === 'file') return '<div class="pwarn">⚠️ Salvataggio temporaneo: se il server si riavvia la partita si perde. Collega il salvataggio sicuro (vedi LEGGIMI).</div>';
+    if (info && info.persist === 'cloud-error') return '<div class="pwarn">⚠️ Il salvataggio sicuro non risponde.</div>';
+    return info && info.persist === 'cloud' ? '<div class="pok">💾 Salvataggio sicuro attivo</div>' : '';
+  }
   function renderLog() {
     $('#log').innerHTML = S.log.slice(-6).map((l) => `<div>${l.text}</div>`).join('');
   }
@@ -553,12 +636,12 @@
   function showCard(c) {
     const el = $('#cardPop');
     const p = P(c.pid);
-    el.style.setProperty('--cc', c.deck === 'fortuna' ? '#f59a3b' : '#2f87d0');
-    el.innerHTML = `<small>${c.deck === 'fortuna' ? 'Fortuna' : 'Sorpresa'} · ${p ? p.name : ''}</small>${c.text}`;
+    el.style.setProperty('--cc', c.deck === 'fortuna' ? '#f59a3b' : c.deck === 'imprevisto' ? '#d8334a' : '#2f87d0');
+    el.innerHTML = `<small>${c.deck === 'fortuna' ? 'Fortuna' : c.deck === 'imprevisto' ? 'Imprevisto' : 'Sorpresa'} · ${p ? p.name : ''}</small>${c.text}`;
     el.classList.add('show');
     sfx('card');
     clearTimeout(cardTimer);
-    cardTimer = setTimeout(() => el.classList.remove('show'), 5500);
+    cardTimer = setTimeout(() => el.classList.remove('show'), 7500);
   }
 
   function joinUrl() {
@@ -576,21 +659,35 @@
   }
 
   // quali righe di registro meritano un annuncio grande
+  const euroIn = (t) => { const m = /€\s?(\d+)/.exec(t || ''); return m ? '€' + m[1] : ''; };
+  const plain = (t) => String(t || '').replace(/^[^\p{L}\p{N}€]+/u, '');
   function announceFrom(s, fresh) {
     for (const l of fresh) {
       if (l.kind === 'event' && s.event && s.event.seq !== lastEventSeq) {
         lastEventSeq = s.event.seq;
         announce(s.event.icon, s.event.title, s.event.text, 'big');
-        setTimeout(() => sfx('event'), 400);
-      } else if (l.kind === 'dice' && /TRIS/.test(l.text)) announce('✨', 'TRIS!', 'vai dove vuoi', 'big');
+      } else if (l.kind === 'rent') announce('💸', 'Affitto da pagare', plain(l.text), 'bad', euroIn(l.text));
+      else if (l.kind === 'tax') announce('🧾', 'Tassa / multa', plain(l.text), 'bad', euroIn(l.text));
+      else if (l.kind === 'go') announce(/d'oro/.test(l.text) ? '🎰' : '➡️', /d'oro/.test(l.text) ? 'PARTENZA D\'ORO: DOPPIO!' : /piatto/.test(l.text) ? 'Piatto dell\'aperitivo!' : 'Partenza!', plain(l.text), /d'oro/.test(l.text) ? 'big' : 'good', euroIn(l.text));
+      else if (l.kind === 'pay' && /€/.test(l.text)) announce('💶', 'Pagamento', plain(l.text), 'bad', euroIn(l.text));
+      else if (l.kind === 'land' && /oggi niente affitto/.test(l.text)) announce('🚧', 'Niente affitto oggi!', plain(l.text), 'big');
+      else if (l.kind === 'sale') announce('🤝', 'Offerta diretta', plain(l.text), '', euroIn(l.text));
+      else if (l.kind === 'dice' && /TRIS/.test(l.text)) announce('✨', 'TRIS!', 'vai dove vuoi', 'big');
       else if (l.kind === 'dice' && /navetta/.test(l.text)) announce('🚌', 'Navetta!', 'scegli il dado');
-      else if (l.kind === 'move' && /Jolly/.test(l.text)) announce('🃏', 'Jolly!', l.text.replace('🃏 ', ''));
-      else if (l.kind === 'move') announce('🌀', 'Si cambia posto!', l.text.replace(/^[^ ]+ /, ''));
-      else if (l.kind === 'ace') announce('🃏', 'Asso nella manica', l.text);
-      else if (l.kind === 'cheat') announce('🕵️', 'Furbetti!', l.text.replace('🕵️ ', ''));
-      else if (l.kind === 'jail' && /va in prigione|tre doppi/.test(l.text)) announce('🚔', 'In prigione!', l.text.replace(/^[^ ]+ /, ''));
-      else if (l.kind === 'bankrupt') announce('💀', 'Fuori dal gioco', l.text.replace(/^[^ ]+ /, ''));
+      else if (l.kind === 'move' && /Jolly/.test(l.text)) announce('🃏', 'Jolly!', plain(l.text));
+      else if (l.kind === 'move' && /scambiano/.test(l.text)) announce('🔀', 'Si cambia posto!', plain(l.text));
+      else if (l.kind === 'ace') announce('🃏', 'Asso nella manica', plain(l.text), /scudo/i.test(l.text) ? 'good' : '');
+      else if (l.kind === 'cheat') announce('🕵️', 'Furbetti!', plain(l.text), 'big', euroIn(l.text));
+      else if (l.kind === 'jail' && /va in prigione|tre doppi/.test(l.text)) announce('🚔', 'In prigione!', plain(l.text), 'bad');
+      else if (l.kind === 'bankrupt') announce('💀', 'Fuori dal gioco', plain(l.text), 'bad');
     }
+  }
+  // avvisi delle caselle speciali (casinò, ruota, relax, monumento…)
+  let lastNoticeSeq = 0;
+  function showNotice(n) {
+    if (!n || n.seq === lastNoticeSeq) return;
+    lastNoticeSeq = n.seq;
+    announce(n.icon, n.title, n.text, n.tone === 'bad' ? 'bad' : n.tone === 'good' ? 'good' : 'big');
   }
 
   // ripasso delle regole a inizio partita
@@ -600,7 +697,7 @@
     const on = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions'].filter((k) => st[k]);
     const el = $('#intro');
     if (!el) return;
-    el.innerHTML = `<div class="ibox"><h2>🎉 Le regole di stasera</h2>
+    el.innerHTML = `<div class="ibox"><h2>🎲 Come si gioca</h2><ol class="ibasic">${D.BASICS.slice(0, 5).map((x) => `<li>${x.replace(/^\S+\s/, '')}</li>`).join('')}</ol><h2>🎉 Le regole di stasera</h2>
       <div class="igrid">${on.length ? on.map((k) => `<div class="icell"><b>${D.RULES[k].icon} ${D.RULES[k].title}</b><span>${D.RULES[k].long.join(' ')}</span></div>`).join('') : '<div class="icell"><b>📜 Regole classiche</b><span>Niente novità: Monopoly come sempre.</span></div>'}</div>
       <div class="ifoot">${st.maxRounds ? `⏱️ Si gioca ${st.maxRounds} giri: vince chi ha più patrimonio. ` : ''}Dal telefono, il tasto ❓ spiega tutto. <i>(tocca per iniziare)</i></div></div>`;
     el.classList.add('show');
@@ -611,9 +708,17 @@
     const firstTime = S === null;
     const prevStatus = S ? S.status : null;
     S = s;
-    if (firstTime) {
+    if (firstTime || s.size !== curSize) {
+      curSize = s.size || 40;
+      const bd = D.BOARDS[curSize] || D.BOARDS[40];
+      BOARD = bd.squares; GC = bd.cols; GR = bd.rows;
+      for (const k in tokenEls) { tokenEls[k].remove(); delete tokenEls[k]; }
+      for (const k in shown) delete shown[k];
+      for (const k in lastOwner) delete lastOwner[k];
       buildBoard();
       layout();
+    }
+    if (firstTime) {
       lastDiceSeq = s.dice.seq;
       lastCardSeq = s.card ? s.card.seq : 0;
       lastLogId = s.log.length ? s.log[s.log.length - 1].id : 0;
@@ -622,14 +727,16 @@
       showDice(s.dice, false);
     }
     // nuovi lanci di dadi
-    if (s.dice.seq !== lastDiceSeq) { lastDiceSeq = s.dice.seq; showDice(s.dice, true); }
+    if (s.dice.seq !== lastDiceSeq) { lastDiceSeq = s.dice.seq; showDice(s.dice, true); const it = $('#intro'); if (it) it.classList.remove('show'); }
     // nuova carta: compare quando le pedine sono arrivate
     if (s.card && s.card.seq !== lastCardSeq) { lastCardSeq = s.card.seq; pendingCard = s.card; }
+    if (firstTime) lastNoticeSeq = s.notice ? s.notice.seq : 0;
+    else if (s.notice && s.notice.seq !== lastNoticeSeq) setTimeout(() => { if (S) showNotice(S.notice); }, 1200);
     // novità del registro: suoni e annunci
     const fresh = s.log.filter((l) => l.id > lastLogId);
     if (fresh.length) {
       lastLogId = fresh[fresh.length - 1].id;
-      const kinds = [...new Set(fresh.map((l) => l.kind))].filter((k) => !['dice', 'event', 'card', 'move', 'ace', 'cheat'].includes(k)).slice(0, 3);
+      const kinds = [...new Set(fresh.map((l) => l.kind))].filter((k) => !['dice', 'event', 'card', 'move', 'ace', 'cheat', 'rent', 'tax', 'go', 'pay', 'jail', 'bankrupt', 'notice', 'land'].includes(k)).slice(0, 3);
       kinds.forEach((k, i) => setTimeout(() => sfx(k), 1700 + i * 450));
       if (!firstTime) setTimeout(() => announceFrom(S, fresh), 1500);
     }
@@ -646,6 +753,14 @@
   }
 
   // ---------- eventi dell'interfaccia ----------
+  document.addEventListener('click', (e) => {
+    const sqEl = e.target.closest && e.target.closest('.sq');
+    if (!sqEl || !S || S.status !== 'playing') return;
+    inspect = { i: Number(sqEl.dataset.i), until: Date.now() + 9000 };
+    clearTimeout(inspectTimer);
+    inspectTimer = setTimeout(() => { inspect = null; if (S) renderCenter(); }, 9100);
+    renderCenter();
+  });
   document.addEventListener('click', async (e) => {
     if (e.target.closest('#intro')) { $('#intro').classList.remove('show'); return; }
     const t = e.target.closest('button');
@@ -654,7 +769,8 @@
     if (t.dataset.preset) post('/api/board', { type: 'settings', preset: t.dataset.preset });
     if (t.dataset.set && S) {
       const k = t.dataset.set;
-      if (k === 'startCash') { const opts = [1000, 1500, 2000, 3000]; post('/api/board', { type: 'settings', startCash: opts[(opts.indexOf(S.settings.startCash) + 1) % opts.length] }); }
+      if (k === 'boardSize') post('/api/board', { type: 'settings', boardSize: S.settings.boardSize === 40 ? 60 : 40 });
+      else if (k === 'startCash') { const opts = [1000, 1500, 2000, 3000]; post('/api/board', { type: 'settings', startCash: opts[(opts.indexOf(S.settings.startCash) + 1) % opts.length] }); }
       else if (k === 'maxRounds') { const o = [0, 20, 30, 50]; post('/api/board', { type: 'settings', maxRounds: o[(o.indexOf(S.settings.maxRounds) + 1) % o.length] }); }
       else if (k === 'theme') post('/api/board', { type: 'settings', theme: THEME_KEYS[(THEME_KEYS.indexOf(S.settings.theme) + 1) % THEME_KEYS.length] });
       else post('/api/board', { type: 'settings', [k]: !S.settings[k] });
@@ -663,12 +779,15 @@
   $('#btnSound').addEventListener('click', () => {
     soundOn = !soundOn;
     localStorage.setItem('dv_sound', soundOn ? '1' : '0');
-    if (soundOn) { ensureCtx(); SFX.go(); }
+    if (soundOn) { ensureCtx(); setTimeout(() => { if (actx && actx.state === 'running') SFX.go(); updateBanner(); }, 200); } else updateBanner();
     updateSoundBtn();
   });
-  function updateSoundBtn() { $('#btnSound').textContent = soundOn ? '🔊 Suoni attivi' : '🔇 Attiva suoni'; }
+  function updateSoundBtn() { $('#btnSound').textContent = soundOn ? '🔊 Suoni attivi' : '🔇 Attiva suoni'; updateBanner(); }
   updateSoundBtn();
-  document.body.addEventListener('pointerdown', () => { if (soundOn) ensureCtx(); }, { once: true });
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach((ev) => document.addEventListener(ev, unlockAudio, { passive: true }));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) unlockAudio(); });
+  setInterval(updateBanner, 1500);
+  $('#soundBanner').addEventListener('click', () => { ensureCtx(); setTimeout(() => { updateBanner(); if (actx && actx.state === 'running') SFX.go(); }, 250); });
   const fsEl = document.documentElement;
   if (!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen)) $('#btnFull').style.display = 'none';
   $('#btnFull').addEventListener('click', () => { (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl); });
@@ -681,7 +800,8 @@
   });
   $('#mAuction').addEventListener('click', async () => { await post('/api/board', { type: 'endAuction' }); $('#menu').classList.add('hidden'); });
   $('#mReset').addEventListener('click', async () => {
-    if (!confirm('Cancellare la partita e ricominciare da zero?')) return;
+    if (!confirm('Cancellare la partita e ricominciare da zero? Si perdono tutti i progressi!')) return;
+    if (!confirm('Sei SICURA? Non si può annullare.')) return;
     await post('/api/board', { type: 'reset' });
     $('#menu').classList.add('hidden');
     S = null;

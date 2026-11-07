@@ -13,7 +13,7 @@ function newGame(n = 3) {
   const g = new Game(rng);
   const names = ['Anna', 'Bea', 'Chiara', 'Dora'];
   const em = ['🚗', '🎩', '🐶', '🐱'];
-  g.setSettings({ preset: 'classic' });
+  g.setSettings({ preset: 'classic', boardSize: 40 });
   for (let i = 0; i < n; i++) g.join(names[i], em[i]);
   g.players = g.players.slice(); // niente shuffle: ordine di ingresso
   const shuffled = g.rng;
@@ -254,7 +254,7 @@ t('carta "esci di prigione" torna nel mazzo dopo l\'uso', () => {
   g.phase = 'roll'; p.inJail = true;
   g.act(p.id, { type: 'useJailCard' });
   assert.strictEqual(p.jailCards.length, 0);
-  assert.strictEqual(g.decks.sorpresa.length, 16);
+  assert.strictEqual(g.decks.sorpresa.length, require('../public/shared/data.js').CARDS.sorpresa.length);
   assert.ok(!p.inJail);
 });
 
@@ -269,7 +269,7 @@ const speed = (d) => queue.push(d === 'J' ? 0.7 : d === 'B' ? 0.99 : (d - 1) / 6
 function newUltra(n = 3, tweak) {
   queue = [];
   const g = new Game(rng);
-  g.setSettings({ preset: 'ultra', events: false, aces: false, cheat: false, freeParking: false });
+  g.setSettings({ preset: 'ultra', boardSize: 40, events: false, aces: false, cheat: false, freeParking: false });
   if (tweak) g.setSettings(tweak);
   const names = ['Anna', 'Bea', 'Chiara', 'Dora'];
   const em = ['🚗', '🎩', '🐶', '🐱'];
@@ -362,6 +362,18 @@ t('asso furto, doppio affitto e salto turno', () => {
   assert.strictEqual(b.skip, 0);
 });
 
+t('furbetti: solo prima di tirare e senza effetti visibili sul tabellone', () => {
+  const g = newUltra(3, { cheat: true });
+  const a = g.cur;
+  const n0 = g.fx.length;
+  assert.ok(g.act(a.id, { type: 'cheat' }).ok);
+  assert.strictEqual(g.fx.length, n0, 'nessun fx per il furbetto');
+  const g2 = newUltra(3, { cheat: true });
+  const b = g2.cur; dice(1, 2);
+  g2.act(b.id, { type: 'roll' });
+  assert.ok(!g2.act(b.id, { type: 'cheat' }).ok, 'dopo il tiro non si può');
+});
+
 t('furbetti: accusa giusta e sbagliata', () => {
   const g = newUltra(3, { cheat: true });
   const [a, b, c] = g.players;
@@ -412,7 +424,7 @@ t('carte nuove: furto da carta, scambio posto', () => {
 t('voto delle regole: maggioranza, pareggio e durata', () => {
   queue = [];
   const g = new Game(rng);
-  g.setSettings({ preset: 'classic' });
+  g.setSettings({ preset: 'classic', boardSize: 40 });
   const a = g.join('Anna', '🚗'), b = g.join('Bea', '🎩'), c = g.join('Chiara', '🐶');
   assert.strictEqual(g.settings.aces, false);
   g.act(b.id, { type: 'vote', key: 'aces', value: true });
@@ -468,6 +480,126 @@ t('banchiere: i pagamenti non gestiti arrivano interi a fine turno', () => {
   g.phase = 'action'; g.nextTurn();
   assert.strictEqual(x.cash, 1600);
   assert.strictEqual(g.payouts.length, 0);
+});
+
+
+function new60(n = 3) {
+  queue = [];
+  const g = new Game(rng);
+  g.setSettings({ preset: 'classic', boardSize: 60 });
+  const names = ['Anna', 'Bea', 'Chiara', 'Dora'];
+  const em = ['🚗', '🎩', '🐶', '🐱'];
+  for (let i = 0; i < n; i++) g.join(names[i], em[i]);
+  const keep = g.rng; g.rng = () => 0.999; g.start(); g.rng = keep;
+  return g;
+}
+const at = (g, id) => g.BOARD.findIndex((q) => q.id === id);
+
+t('60 caselle: prigione a 16, giro completo di 60', () => {
+  const g = new60();
+  assert.strictEqual(g.N, 60);
+  assert.strictEqual(g.jailIdx, 16);
+  const p = g.cur; p.pos = 58; dice(1, 2);
+  const cash = p.cash;
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(p.pos, 1);
+  assert.ok(p.cash > cash);
+  g.sendToJail?.(p);
+});
+
+t('60 caselle: vai in prigione manda in casella 16', () => {
+  const g = new60();
+  const p = g.cur; p.pos = at(g, 'gotojail') - 2; dice(1, 1);
+  g.act(p.id, { type: 'roll' });
+  assert.ok(p.inJail); assert.strictEqual(p.pos, 16);
+});
+
+t('colori nuovi: tutto il verde acqua permette di costruire e il Monumento arriva a 6', () => {
+  const g = new60();
+  const p = g.cur; p.cash = 9000; g.phase = 'action';
+  for (const id of ['trento', 'bolzano', 'cortina']) give(g, p, at(g, id));
+  const i = at(g, 'trento');
+  for (let k = 0; k < 5; k++) for (const id of ['trento', 'bolzano', 'cortina']) assert.ok(g.act(p.id, { type: 'build', idx: at(g, id) }).ok, id + k);
+  assert.strictEqual(g.props[i].houses, 5);
+  assert.ok(g.act(p.id, { type: 'build', idx: i }).ok);
+  assert.strictEqual(g.props[i].houses, 6);
+  assert.ok(!g.act(p.id, { type: 'build', idx: i }).ok);
+  const rent = g.rentFor(i, {});
+  assert.ok(rent > g.BOARD[i].rent[5]);
+  assert.ok(g.act(p.id, { type: 'sell', idx: i }).ok);
+  assert.strictEqual(g.props[i].houses, 5);
+});
+
+t('casinò, ruota, relax, bonus, mercato: nessuna si blocca', () => {
+  for (const id of ['casino', 'ruota', 'relax', 'bonus', 'mercato', 'teletrasporto']) {
+    for (let r = 0; r < 12; r++) {
+      const g = new60();
+      g.rng = Math.random;
+      const p = g.cur; p.pos = at(g, id) - 1; queue = [face(1), face(1)];
+      g.act(p.id, { type: 'roll' });
+      if (g.phase === 'buy') g.act(p.id, { type: 'decline' });
+      let guard = 0;
+      while (g.phase === 'auction' && guard++ < 10) { for (const q of g.alive()) { try { g.act(q.id, { type: 'pass' }); } catch (e) {} } }
+      assert.ok(['action', 'debt', 'roll', 'buy', 'auction'].includes(g.phase), id + ' ' + g.phase);
+    }
+  }
+});
+
+t('tutte le carte (fortuna, sorpresa, imprevisto) si pescano senza errori', () => {
+  const { CARDS } = require('../public/shared/data.js');
+  for (const deck of ['fortuna', 'sorpresa', 'imprevisto']) {
+    CARDS[deck].forEach((c, k) => {
+      const g = new60(3);
+      g.rng = Math.random;
+      const p = g.cur; p.cash = 3000; p.pos = 5;
+      g.props[at(g, 'cinque')].owner = g.players[1].id;
+      g.props[at(g, 'trento')].owner = p.id; g.props[at(g, 'trento')].houses = 2;
+      g.decks[deck].splice(g.decks[deck].indexOf(k), 1); g.decks[deck].unshift(k);
+      g.drawCard(p, deck);
+      g.settle?.();
+      assert.ok(typeof g.phase === 'string', deck + k);
+      assert.ok(g.view(p.id, new Set()), deck + k);
+    });
+  }
+});
+
+
+t('vendita diretta: offro la proprietà a una giocatrice, accetta o rifiuta', () => {
+  const g = newGame(3);
+  const [a, b, c] = g.players;
+  const p = g.cur; dice(1, 2); // casella 3 libera
+  g.act(p.id, { type: 'roll' });
+  assert.strictEqual(g.phase, 'buy');
+  const other = g.players.find((q) => q.id !== p.id);
+  assert.ok(!g.act(p.id, { type: 'offerSale', to: other.id, price: 99999 }).ok);
+  assert.ok(g.act(p.id, { type: 'offerSale', to: other.id, price: 80 }).ok);
+  assert.strictEqual(g.phase, 'sale');
+  const third = g.players.find((q) => q.id !== p.id && q.id !== other.id);
+  assert.ok(!g.act(third.id, { type: 'saleAccept' }).ok, 'solo il destinatario risponde');
+  assert.ok(g.act(other.id, { type: 'saleDecline' }).ok);
+  assert.strictEqual(g.phase, 'buy');
+  g.act(p.id, { type: 'offerSale', to: other.id, price: 80 });
+  const c0 = other.cash, s0 = p.cash;
+  assert.ok(g.act(other.id, { type: 'saleAccept' }).ok);
+  assert.strictEqual(g.props[p.pos].owner, other.id);
+  assert.strictEqual(other.cash, c0 - 80); assert.strictEqual(p.cash, s0 + 80);
+  assert.strictEqual(g.phase, 'action');
+});
+
+
+t('salvataggio: una partita sul tabellone lungo si ricarica identica', () => {
+  const g = new60(3);
+  const p = g.cur; dice(2, 3);
+  g.act(p.id, { type: 'roll' });
+  const copy = Game.fromJSON(JSON.parse(JSON.stringify(g)), rng);
+  assert.strictEqual(copy.N, 60); assert.strictEqual(copy.jailIdx, 16);
+  assert.strictEqual(copy.phase, g.phase);
+  assert.ok(copy.view(p.id, new Set()).size === 60);
+  assert.ok(copy.decks.imprevisto.length > 0);
+  // una vecchia partita salvata (senza boardSize) torna sul tabellone da 40
+  const old = JSON.parse(JSON.stringify(newGame(3)));
+  delete old.settings.boardSize;
+  assert.strictEqual(Game.fromJSON(old, rng).N, 40);
 });
 
 console.log(`\n${passed} test passati`);
