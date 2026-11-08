@@ -1,39 +1,17 @@
 <!doctype html>
-<html lang="it">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<html lang="it"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Tabellone</title>
-<link rel="stylesheet" href="board.css">
-</head>
-<body>
+<title>Misteri al Collegio · Tabellone</title>
+<link rel="stylesheet" href="ui.css"><link rel="stylesheet" href="board.css">
+</head><body>
 <div id="app">
-  <div id="boardWrap"><div id="board"></div></div>
-  <aside id="side">
-    <div id="players"></div>
-    <div id="tools">
-      <button id="btnSound" class="tool">🔇 Suoni</button>
-      <button id="btnFull" class="tool">⛶ Schermo intero</button>
-      <button id="btnMenu" class="tool">⚙︎ Menu</button>
-    </div>
-  </aside>
-</div>
-<canvas id="confetti"></canvas>
-<div id="soundBanner">🔊 Tocca qui per attivare i suoni<small> (se non senti nulla: controlla il volume e il tasto muto dell'iPad)</small></div>
-<div id="menu" class="hidden">
-  <div class="menuBox">
-    <h3>Menu partita</h3>
-    <button id="mEnd" class="big">🏁 Termina ora e proclama il vincitore</button>
-    <button id="mAuction" class="big">⏩ Chiudi l'asta in corso</button>
-    <button id="mReset" class="big danger">🗑 Nuova partita (cancella tutto)</button>
-    <button id="mClose" class="big ghost">Chiudi</button>
+  <div id="lobby" class="hidden"></div>
+  <div id="game" class="hidden">
+    <div id="mapwrap"><div id="map"></div><div id="sugg" class="hidden"></div><div id="banner" class="hidden"></div></div>
+    <aside id="side"></aside>
   </div>
+  <div id="over" class="hidden"></div>
 </div>
-<script src="shared/data.js"></script>
-<script src="shared/qrcode.js"></script>
-<script src="board.js"></script>
-</body>
-</html>
+<script src="data.js"></script><script src="qrcode.js"></script><script src="ui.js"></script><script src="mapview.js"></script><script src="board.js"></script>
+</body></html>

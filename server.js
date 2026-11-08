@@ -1,5 +1,5 @@
 'use strict';
-// Server di gioco: nessuna dipendenza, serve solo Node.js.
+// Server di "Misteri al Collegio": nessuna dipendenza, serve solo Node.js.
 //   node server.js        (porta 3000)
 //   PORT=8080 node server.js
 const http = require('http');
@@ -7,13 +7,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { Game, GameError } = require('./game');
-let DATA;
-try { DATA = require('./public/shared/data.js'); } catch (e) { DATA = require('./data.js'); }
-const { TITLE } = DATA;
+const { TITLE } = require('./data.js');
 
 const PORT = Number(process.env.PORT) || 3000;
-const PUBLIC = path.join(__dirname, 'public');
-const DATA_DIR = path.join(__dirname, 'data');
+const PUBLIC = __dirname;
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'state.json');
 
 const MIME = {
@@ -27,7 +25,7 @@ const MIME = {
 // sopravvive ai riavvii di Render. Servono due variabili d'ambiente: UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN.
 const REMOTE_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
 const REMOTE_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const REMOTE_KEY = 'dolcevita:state';
+const REMOTE_KEY = 'collegio:state';
 const remoteOn = !!(REMOTE_URL && REMOTE_TOKEN);
 let lastSaveOk = null;
 
@@ -95,64 +93,21 @@ function connectedIds() {
   for (const c of clients) if (c.pid) s.add(c.pid);
   return s;
 }
-let autoAt = 0;
 function push(c, connected) {
   try {
     const v = game.view(c.pid, connected);
-    v.autoLeft = autoAt ? Math.max(0, autoAt - Date.now()) : 0;
     c.res.write('data: ' + JSON.stringify(v) + '\n\n');
   } catch (e) { /* chiuso */ }
 }
 
-// fine turno automatico: dopo qualche secondo in cui nessuno fa nulla, il turno passa da solo
-let autoTimer = null, autoKey = '', lastDice = -1, lastAutoLog = 0;
-function scheduleAuto() {
-  const g = game;
-  const ok = g.status === 'playing' && g.phase === 'action' && g.settings.autoEnd && !g.hold && g.cur && !g.cur.bankrupt && !g.debts.length;
-  if (!ok) { clearTimeout(autoTimer); autoTimer = null; autoKey = ''; autoAt = 0; return; }
-  const key = `${g.turnCount}:${g.logSeq}:${g.phase}`;
-  if (key === autoKey) return;
-  autoKey = key;
-  clearTimeout(autoTimer);
-  const rolled = g.dice.seq !== lastDice;
-  lastDice = g.dice.seq;
-  // dopo un lancio l'iPad deve avere il tempo di animare dadi e pedina
-  // ogni annuncio a tutto schermo (affitti, multe, eventi, carte...) ha bisogno di qualche secondo per essere letto
-  const BIG = ['rent', 'tax', 'go', 'notice', 'card', 'ace', 'jail', 'event', 'cheat', 'pay', 'bankrupt'];
-  const bigNew = g.log.filter((l) => l.id > lastAutoLog && BIG.includes(l.kind)).length;
-  lastAutoLog = g.logSeq;
-  const delay = (rolled ? 9000 + 420 * (g.dice.d1 + g.dice.d2 + (typeof g.dice.d3 === 'number' ? g.dice.d3 : 0)) : 5000) + Math.min(3, bigNew) * 4200;
-  autoAt = Date.now() + delay;
-  autoTimer = setTimeout(() => {
-    autoTimer = null;
-    const cur = game.cur;
-    if (game.status === 'playing' && game.phase === 'action' && !game.hold && cur && `${game.turnCount}:${game.logSeq}:${game.phase}` === autoKey) {
-      game.act(cur.id, { type: 'endTurn' });
-      broadcast();
-    }
-  }, delay);
-}
-let claimTimer = null, claimKey = '';
-function scheduleClaim() {
-  const g = game;
-  if (g.status !== 'playing' || g.phase !== 'claim' || !g.claim) { clearTimeout(claimTimer); claimTimer = null; claimKey = ''; return; }
-  const key = String(g.claim.seq);
-  if (key === claimKey) return;
-  claimKey = key;
-  clearTimeout(claimTimer);
-  claimTimer = setTimeout(() => {
-    claimTimer = null;
-    if (game.status === 'playing' && game.phase === 'claim' && game.claim && String(game.claim.seq) === claimKey) { game.claimEnd(); broadcast(); }
-  }, Math.max(1000, g.claim.until - Date.now()));
-}
 function broadcast() {
-  scheduleAuto();
-  scheduleClaim();
   const connected = connectedIds();
   for (const c of clients) push(c, connected);
   save();
 }
 setInterval(() => { for (const c of clients) { try { c.res.write(': ping\n\n'); } catch (e) { /* */ } } }, 15000);
+// il coprifuoco scatta da solo
+setInterval(() => { if (game.tick()) broadcast(); }, 3000);
 
 // ---------- rete locale ----------
 function lanAddresses() {
@@ -196,7 +151,7 @@ async function handleApi(req, res, url) {
     const existing = game.byToken(body.token);
     if (existing) return json(res, 200, { ok: true, token: existing.token, id: existing.id });
     try {
-      const p = game.join(body.name, body.emoji);
+      const p = game.join(body.name);
       broadcast();
       return json(res, 200, { ok: true, token: p.token, id: p.id });
     } catch (e) {
@@ -207,7 +162,7 @@ async function handleApi(req, res, url) {
   if (route === '/api/claim') {
     // riprendi un giocatore rimasto senza telefono (solo se in questo momento non è collegato)
     const p = game.player(body.id);
-    if (!p || p.bankrupt) return json(res, 200, { ok: false, error: 'Giocatore non trovato' });
+    if (!p) return json(res, 200, { ok: false, error: 'Giocatore non trovato' });
     if (connectedIds().has(p.id)) return json(res, 200, { ok: false, error: 'Questo giocatore è già collegato da un altro telefono.' });
     return json(res, 200, { ok: true, token: p.token, id: p.id });
   }
@@ -232,20 +187,20 @@ async function handleApi(req, res, url) {
 }
 
 // File pubblici ammessi quando tutto sta nella stessa cartella (senza sottocartelle)
-const FLAT_OK = new Set(['index.html', 'board.html', 'board.css', 'board.js', 'play.html', 'play.css', 'play.js', 'data.js', 'qrcode.js']);
+const FLAT_OK = new Set(['index.html','index.html', 'board.html', 'board.css', 'board.js', 'play.html', 'play.css', 'play.js', 'data.js', 'qrcode.js', 'mapview.js', 'ui.js', 'ui.css']);
 
 function serveStatic(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   if (p === '/board') p = '/board.html';
   if (p === '/play') p = '/play.html';
-  const candidates = [path.normalize(path.join(PUBLIC, p))];
+  const candidates = [];
   const base = path.basename(p);
-  if (FLAT_OK.has(base)) candidates.push(path.join(__dirname, base)); // struttura "piatta"
+  if (FLAT_OK.has(base)) candidates.push(path.join(__dirname, base));
   const tryNext = (i) => {
     if (i >= candidates.length) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Non trovato'); }
     const file = candidates[i];
-    if (i === 0 && !file.startsWith(PUBLIC)) { res.writeHead(403); return res.end('Vietato'); }
+    if (false) { res.writeHead(403); return res.end('Vietato'); }
     fs.readFile(file, (err, buf) => {
       if (err) return tryNext(i + 1);
       res.writeHead(200, {
@@ -323,6 +278,6 @@ process.on('unhandledRejection', (e) => console.error('Promessa rifiutata:', e))
 
 // su Render gratis il servizio si addormenta dopo 15 minuti senza visite: durante la partita lo teniamo sveglio
 const SELF = process.env.RENDER_EXTERNAL_URL;
-if (SELF) setInterval(() => { if (game.status === 'playing') fetch(SELF + '/api/info').catch(() => {}); }, 8 * 60 * 1000);
+if (SELF) setInterval(() => { if (game.status !== 'ended') fetch(SELF + '/api/info').catch(() => {}); }, 8 * 60 * 1000);
 
 main();
