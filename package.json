@@ -1,8 +1,12 @@
 {
-  "name": "misteri-al-collegio",
+  "name": "dolce-vita-monopoly",
   "version": "1.0.0",
-  "description": "Cluedo in versione collegio: un tabellone sull'iPad e un telefono per ogni giocatrice.",
+  "description": "Gioco da tavolo digitale: iPad come tabellone, telefoni come controller.",
   "main": "server.js",
-  "scripts": { "start": "node server.js", "test": "node test.js" },
-  "engines": { "node": ">=18" }
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/rules.js && node test/simulate.js 100"
+  },
+  "engines": { "node": ">=16" },
+  "license": "MIT"
 }

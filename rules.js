@@ -738,10 +738,32 @@ t('acquisto libero: chi la richiede paga il listino e chi l\'ha lasciata prende 
   g.act(a.id, { type: 'decline' });
   assert.strictEqual(g.phase, 'claim', 'niente asta nei primi giri');
   assert.ok(g.act(b.id, { type: 'claimTake' }).ok);
+  for (const q of g.players) if (q.id !== a.id && q.id !== b.id) g.act(q.id, { type: 'claimPass' });
   assert.strictEqual(g.props[idx].owner, b.id);
   assert.strictEqual(b.cash, cb - price);
   assert.strictEqual(a.cash, ca + Math.round(price * 0.1 / 10) * 10);
   assert.strictEqual(g.phase, 'action');
+});
+
+t('acquisto libero: se in due la vogliono parte l\'asta tra loro e chi l\'ha lasciata prende il 10%', () => {
+  const g = new4({ freeBuy: true, auctions: true, auctionRound: 6 });
+  const a = g.cur, [b, c] = g.players.filter((q) => q.id !== a.id);
+  const idx = g.BOARD.findIndex((q) => q.type === 'street');
+  a.pos = idx; g.land(a, {});
+  const price = g.priceOf(idx), ca = a.cash;
+  g.act(a.id, { type: 'decline' });
+  g.act(b.id, { type: 'claimTake' });
+  assert.strictEqual(g.phase, 'claim', 'si aspetta che anche le altre decidano');
+  g.act(c.id, { type: 'claimTake' });
+  for (const q of g.players) if (![a.id, b.id, c.id].includes(q.id)) g.act(q.id, { type: 'claimPass' });
+  assert.strictEqual(g.phase, 'auction');
+  assert.deepStrictEqual(g.auction.active.sort(), [b.id, c.id].sort());
+  assert.ok(!g.act(b.id, { type: 'bid', amount: price - 10 }).ok, 'si parte dal listino');
+  assert.ok(g.act(b.id, { type: 'bid', amount: price }).ok);
+  assert.ok(g.act(c.id, { type: 'bid', amount: price + 50 }).ok);
+  g.act(b.id, { type: 'pass' });
+  assert.strictEqual(g.props[idx].owner, c.id);
+  assert.strictEqual(a.cash, ca + Math.round((price + 50) * 0.1 / 10) * 10);
 });
 
 t('acquisto libero: se nessuna la vuole resta libera; dal giro stabilito parte l\'asta', () => {
