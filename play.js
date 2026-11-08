@@ -299,6 +299,11 @@
     if (S.autoLeft > 0) return `<div class="autobar"><div class="fill" style="animation-duration:${S.autoLeft}ms"></div><span>Il turno passa da solo…</span><button class="btn sm ghost" data-act="hold">⏸ Aspetta</button></div>`;
     return '<p class="muted">Prima di finire puoi costruire, ipotecare o fare scambi.</p>';
   }
+  function auctionOwnHTML() {
+    const mine = propsOf(S.you).filter((i) => !S.props[i].mortgaged && !S.props[i].houses);
+    if (!mine.length) return '';
+    return `<p class="muted" style="margin-top:10px">🔨 Oppure metti all'asta una tua proprietà: se qualcuna la compra ti rientra il 70%.</p><div class="row" style="flex-wrap:wrap">${mine.map((i) => `<button class="btn ghost" data-act="auctionOwn" data-i="${i}">${esc(nm(i))}</button>`).join('')}</div>`;
+  }
   function bankerHTML(m) {
     if (!S.settings.banker || !S.bankerId) return '';
     const b = P(S.bankerId);
@@ -335,6 +340,7 @@
         ${myDebts.map((d) => `<p>${eur(d.amount)} a ${d.creditor === 'bank' || d.creditor === 'pot' ? 'la banca' : esc(P(d.creditor).name)} <span class="muted">(${esc(d.reason)})</span></p>`).join('')}
         <p class="muted">Hai ${eur(m.cash)}. Raccogli i soldi: ipoteca proprietà, vendi case o proponi uno scambio. Appena ne hai abbastanza, si paga da solo.</p>
         <div class="row"><button class="btn ghost" data-tab="props">🏠 Proprietà</button><button class="btn ghost" data-tab="scambi">🤝 Scambi</button></div>
+        ${S.phase === 'debt' ? auctionOwnHTML() : ''}
         <button class="btn red" data-act="bankrupt">Dichiaro bancarotta</button></div>`;
       return html + logHTML(3);
     }
@@ -363,6 +369,16 @@
         <div class="row"><button class="btn green ${m.cash >= sl.price ? '' : 'off'}" data-act="${m.cash >= sl.price ? 'saleAccept' : 'why'}" data-w="Non hai abbastanza soldi">✅ Accetto</button><button class="btn ghost" data-act="saleDecline">❌ No grazie</button></div>`;
       else if (sl.from === S.you) html += `<p class="muted" style="text-align:center">Aspetta la risposta di ${to.emoji} ${esc(to.name)}…</p><button class="btn ghost" data-act="saleCancel">Ritira l'offerta</button>`;
       else html += `<p class="muted" style="text-align:center">${seller.emoji} ${esc(seller.name)} offre la proprietà a ${to.emoji} ${esc(to.name)}.</p>`;
+      return html + '</div>' + logHTML(3);
+    }
+
+    if (S.phase === 'claim' && S.claim) {
+      const c = S.claim, from = P(c.from);
+      html += `<div class="card"><h3>🙋 Chi la vuole?</h3>${deedMini(c.idx)}<p class="bigtxt">${eur(c.price)}</p>`;
+      if (c.from === S.you) html += `<p class="muted" style="text-align:center">Hai lasciato libera <b>${esc(nm(c.idx))}</b>. Se qualcuna la prende, ti spetta il 10% (${eur(Math.round(c.price * 0.1 / 10) * 10)}).</p>`;
+      else if (c.eligible.includes(S.you) && !c.passed.includes(S.you)) html += `<p style="text-align:center">${from.emoji} ${esc(from.name)} non l'ha voluta. Prezzo di listino: la prendi tu?</p>
+        <div class="row"><button class="btn green" data-act="claimTake">🙋 La voglio!</button><button class="btn ghost" data-act="claimPass">No grazie</button></div>`;
+      else html += '<p class="muted" style="text-align:center">Stai guardando: aspetta che decidano le altre.</p>';
       return html + '</div>' + logHTML(3);
     }
 
@@ -425,7 +441,7 @@
       const can = m.cash >= S.buy.price;
       html += `<div class="card"><h3>Sei su ${esc(nm(idx))}</h3>${diceHTML(S.dice)}${deedMini(idx)}
         <button class="btn green ${can ? '' : 'off'}" data-act="buy">Compra per ${eur(S.buy.price)}</button>
-        <button class="btn ghost" data-act="decline">${S.settings.auctions ? 'Non comprare (asta)' : 'Non comprare'}</button>
+        <button class="btn ghost" data-act="decline">${S.settings.freeBuy ? 'Non comprare (la lascio libera)' : S.settings.auctions ? 'Non comprare (asta)' : 'Non comprare'}</button>
         <button class="btn ghost" data-act="saleOpen">🤝 Offri a una giocatrice</button>
         ${can ? '' : '<p class="muted">Non hai abbastanza soldi: puoi ipotecare qualcosa nel tab Proprietà.</p>'}</div>`;
       return html + logHTML(3);
@@ -435,6 +451,7 @@
       html += `<div class="card"><h3>${again ? 'Doppio! 🎉' : 'Il tuo turno'}</h3>
         ${diceHTML(S.dice)}
         ${autoHTML()}
+        ${S.travel && S.travel.length ? `<p class="muted" style="margin:6px 0 2px">🚆 Sei su una tua stazione: puoi viaggiare gratis</p><div class="row" style="flex-wrap:wrap">${S.travel.map((i) => `<button class="btn ghost" data-act="travel" data-i="${i}">🚆 ${esc(nm(i))}</button>`).join('')}</div>` : ''}
         <button class="btn ${again ? 'green' : 'gold'}" data-act="endTurn">${again ? '🎲 Tira ancora' : 'Fine turno'}</button>${cheatHTML(true)}</div>`;
       html += acesHTML(m, true);
       return html + logHTML(4);
@@ -531,7 +548,8 @@
   let modal = null;            // null | 'help' | 'intro'
   let introFor = null;
   const openRules = new Set();
-  const FEAT = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'teams', 'dares', 'cheat', 'banker', 'freeParking', 'auctions'];
+  const FEAT = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'dares', 'cheat', 'freeParking', 'auctions', 'freeBuy'];
+  const ARLAB = (v) => (v ? 'dal giro ' + v : 'subito');
   const TLAB = { 0: 'senza timer', 30: '30 minuti', 45: '45 minuti', 60: '1 ora', 90: '1 ora e mezza' };
   const TEAMICON = ['🟥', '🟦', '🟩', '🟨'];
   const DUR = { 0: 'senza limite', 20: '20 giri', 30: '30 giri', 50: '50 giri' };
@@ -564,9 +582,10 @@
         <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
         <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button>
         <button class="chip" data-act="set" data-k="maxRounds">⏱️ Durata: ${DUR[st.maxRounds]}</button>
+        <button class="chip" data-act="set" data-k="auctionRound">🔨 Aste: ${ARLAB(st.auctionRound)}</button>
         <button class="chip" data-act="set" data-k="timeLimit">⏰ Timer: ${TLAB[st.timeLimit || 0]}</button>
         <button class="chip ${st.autoEnd ? 'on' : ''}" data-act="set" data-k="autoEnd">⏭️ Fine turno automatico</button>
-        <button class="chip ${st.showCash && !st.cheat && !st.banker ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
+        <button class="chip ${st.showCash && !st.cheat ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
         <button class="btn green ${S.players.length < 2 ? 'off' : ''}" data-act="start">Inizia la partita</button></div>`
         : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone). Partita: ${(D.THEMES[st.theme] || D.THEMES.italia).label}, ${eur(st.startCash)}, durata ${DUR[st.maxRounds]}, tabellone ${st.boardSize === 40 ? 'classico' : 'lungo'}.</p></div>`}
       <button class="btn ghost" data-act="help">❓ Come si gioca</button>
@@ -686,6 +705,10 @@
       case 'build': case 'sell': case 'mortgage': case 'unmortgage': await act({ type: a, idx: Number(d.i) }); return;
       case 'bankrupt': if (confirm('Confermi? Perdi tutto e esci dal gioco.')) await act({ type: 'bankrupt' }); return;
       case 'resign': if (confirm('Vuoi davvero arrenderti? Esci dal gioco e lasci tutto alla banca.')) await act({ type: 'bankrupt' }); return;
+      case 'claimTake': await act({ type: 'claimTake' }); return;
+      case 'claimPass': await act({ type: 'claimPass' }); return;
+      case 'auctionOwn': await act({ type: 'auctionOwn', idx: Number(d.i) }); return;
+      case 'travel': await act({ type: 'travel', idx: Number(d.i) }); return;
       case 'dareYes': await act({ type: 'dareAnswer', done: true }); return;
       case 'dareNo': await act({ type: 'dareAnswer', done: false }); return;
       case 'set': {
@@ -694,6 +717,7 @@
         else if (d.k === 'boardSize') await act({ type: 'settings', boardSize: st.boardSize === 40 ? 60 : 40 });
         else if (d.k === 'startCash') { const o = [1000, 1500, 2000, 3000]; await act({ type: 'settings', startCash: o[(o.indexOf(st.startCash) + 1) % o.length] }); }
         else if (d.k === 'maxRounds') { const o = [0, 20, 30, 50]; await act({ type: 'settings', maxRounds: o[(o.indexOf(st.maxRounds) + 1) % o.length] }); }
+        else if (d.k === 'auctionRound') { const o = [0, 4, 6, 10, 15]; await act({ type: 'settings', auctionRound: o[(o.indexOf(st.auctionRound) + 1) % o.length] }); }
         else if (d.k === 'timeLimit') { const o = [0, 30, 45, 60, 90]; await act({ type: 'settings', timeLimit: o[(o.indexOf(st.timeLimit || 0) + 1) % o.length] }); }
         else if (d.k === 'theme') { const o = Object.keys(D.THEMES); await act({ type: 'settings', theme: o[(o.indexOf(st.theme) + 1) % o.length] }); }
         else await act({ type: 'settings', [d.k]: !st[d.k] });

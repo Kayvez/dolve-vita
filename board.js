@@ -560,6 +560,7 @@
       case 'auction': return 'Asta in corso';
       case 'action': return S.canRollAgain && !cur.inJail ? 'può costruire e scambiare, poi tira ancora (doppio!)' : 'può costruire, scambiare e finire il turno';
       case 'debt': return 'deve raccogliere dei soldi';
+      case 'claim': return 'la proprietà è libera: chi la vuole? (a prezzo di listino)';
       case 'dare': return 'deve fare la sfida davanti a tutte!';
       default: return '';
     }
@@ -591,8 +592,9 @@
       const players = S.players.map((p) => `<div class="lp" style="--c:${p.color}"><span class="tk">${p.emoji}</span>${p.name}${p.id === S.hostId ? ' ⭐' : ''}</div>`).join('');
       const st = S.settings;
       const T = D.THEMES[st.theme] || D.THEMES.italia;
-      const FEAT = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'teams', 'dares', 'cheat', 'banker', 'freeParking', 'auctions'];
+      const FEAT = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'dares', 'cheat', 'freeParking', 'auctions', 'freeBuy'];
       const tally = (k) => { const R = D.RULES[k], t = (S.votes || {})[k] || { yes: 0, no: 0 }; const on = !!st[k]; return `<div class="vcell ${on ? 'on' : ''}"><span class="vi">${R.icon}</span><b>${R.title}</b><span class="vn">👍 ${t.yes} · 👎 ${t.no}</span><span class="vs">${on ? '✅ attiva' : '⬜ spenta'}</span></div>`; };
+      const ARLAB = (v) => (v ? 'dal giro ' + v : 'subito');
       const TLAB = { 0: 'senza timer', 30: '30 minuti', 45: '45 minuti', 60: '1 ora', 90: '1 ora e mezza' };
       const TEAMICON = ['🟥', '🟦', '🟩', '🟨'];
       const DUR = { 0: 'senza limite', 20: '20 giri', 30: '30 giri', 50: '50 giri' };
@@ -601,7 +603,7 @@
           <div class="joinTxt">Oppure apri sul telefono:<br><b>${url.replace(/^https?:\/\//, '')}</b><div class="votehint">🗳️ Ognuna vota le regole dal telefono: vince la maggioranza</div></div></div>
         <div class="vgrid">${FEAT.map(tally).join('')}</div>
         <div class="chips grid2">
-          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}${chip(`⏰ ${TLAB[st.timeLimit || 0]}`, 'data-set="timeLimit"')}${chip(`🗺️ ${st.boardSize === 40 ? 'Classico 40' : 'Lungo 60'}`, 'data-set="boardSize"')}${chip(`🏁 ${st.winWorth ? 'Vince chi arriva a ' + eur(st.winWorth) : 'Nessun traguardo'}`, 'data-set="winWorth"')}
+          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}${chip(`🔨 Aste ${ARLAB(st.auctionRound)}`, 'data-set="auctionRound"')}${chip(`⏰ ${TLAB[st.timeLimit || 0]}`, 'data-set="timeLimit"')}${chip(`🗺️ ${st.boardSize === 40 ? 'Classico 40' : 'Lungo 60'}`, 'data-set="boardSize"')}${chip(`🏁 ${st.winWorth ? 'Vince chi arriva a ' + eur(st.winWorth) : 'Nessun traguardo'}`, 'data-set="winWorth"')}
         </div>
         ${persistWarn()}
         <div class="lobbyPlayers">${players || '<span style="opacity:.6;font-size:1.2em">Nessuna giocatrice ancora…</span>'}</div>
@@ -635,6 +637,9 @@
     } else if (S.phase === 'debt' && S.debts.length) {
       const d = S.debts[0];
       html = `<div class="auctionBox"><div style="font-size:1.4em">💸 ${nameOf(d.pid)} deve</div><div class="big">${eur(d.amount)}</div><div>a ${nameOf(d.creditor)} · ${d.reason}</div></div>`;
+    } else if (S.phase === 'claim' && S.claim) {
+      const c = S.claim;
+      html = `<div class="mainRow">${deedHTML(c.idx)}<div class="auctionBox"><div style="font-size:1.3em">🙋 Chi la vuole?</div><div class="big">${eur(c.price)}</div><div>${nameOf(c.from)} non la compra: prezzo di listino, a lei il 10%</div></div></div>`;
     } else if (S.phase === 'dare' && S.dare) {
       html = `<div class="auctionBox"><div style="font-size:1.4em">🎭 SFIDA!</div><div style="font-size:1.5em;font-weight:800;margin:6px 0">${nameOf(S.dare.pid)} ${S.dare.text}</div><div>Fatta: <b>+€100</b> · Rifiutata: <b>−€50</b></div></div>`;
     } else if (S.phase === 'choose' && S.choice) {
@@ -644,7 +649,7 @@
     } else if (S.pot) {
       html = `<div class="chip">🍹 Piatto della Pausa Aperitivo: ${eur(S.pot)}</div>`;
     }
-    if (inspect && Date.now() < inspect.until && !['buy', 'auction', 'sale', 'debt', 'choose', 'dare'].includes(S.phase)) html = squareInfoHTML(inspect.i);
+    if (inspect && Date.now() < inspect.until && !['buy', 'auction', 'sale', 'debt', 'choose', 'dare', 'claim'].includes(S.phase)) html = squareInfoHTML(inspect.i);
     main.innerHTML = html;
   }
 
@@ -723,7 +728,7 @@
   let introFor = null, introTimer = null;
   function showIntro() {
     const st = S.settings;
-    const on = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'freeParking', 'auctions'].filter((k) => st[k]);
+    const on = ['speedDie', 'aces', 'events', 'cheat', 'freeParking', 'auctions', 'freeBuy'].filter((k) => st[k]);
     const el = $('#intro');
     if (!el) return;
     el.innerHTML = `<div class="ibox"><h2>🎲 Come si gioca</h2><ol class="ibasic">${D.BASICS.slice(0, 5).map((x) => `<li>${x.replace(/^\S+\s/, '')}</li>`).join('')}</ol><h2>🎉 Le regole di stasera</h2>
@@ -802,6 +807,7 @@
       else if (k === 'boardSize') post('/api/board', { type: 'settings', boardSize: S.settings.boardSize === 40 ? 60 : 40 });
       else if (k === 'startCash') { const opts = [1000, 1500, 2000, 3000]; post('/api/board', { type: 'settings', startCash: opts[(opts.indexOf(S.settings.startCash) + 1) % opts.length] }); }
       else if (k === 'maxRounds') { const o = [0, 20, 30, 50]; post('/api/board', { type: 'settings', maxRounds: o[(o.indexOf(S.settings.maxRounds) + 1) % o.length] }); }
+      else if (k === 'auctionRound') { const o = [0, 4, 6, 10, 15]; post('/api/board', { type: 'settings', auctionRound: o[(o.indexOf(S.settings.auctionRound) + 1) % o.length] }); }
       else if (k === 'timeLimit') { const o = [0, 30, 45, 60, 90]; post('/api/board', { type: 'settings', timeLimit: o[(o.indexOf(S.settings.timeLimit || 0) + 1) % o.length] }); }
       else if (k === 'theme') post('/api/board', { type: 'settings', theme: THEME_KEYS[(THEME_KEYS.indexOf(S.settings.theme) + 1) % THEME_KEYS.length] });
       else post('/api/board', { type: 'settings', [k]: !S.settings[k] });

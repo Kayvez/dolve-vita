@@ -93,7 +93,6 @@ function bankerActs(g, rng) {
 
 function step(g, rng) {
   const cur = g.cur;
-  if (g.settings.banker) bankerActs(g, rng);
   switch (g.phase) {
     case 'roll': {
       if (cur.inJail) {
@@ -118,6 +117,16 @@ function step(g, rng) {
       }
       if (cur.cash >= g.priceOf(cur.pos) && rng() < 0.75) g.act(cur.id, { type: 'buy' });
       else g.act(cur.id, { type: 'decline' });
+      return true;
+    }
+    case 'claim': {
+      const c = g.claim;
+      for (const id of c.eligible) {
+        if (g.phase !== 'claim') break;
+        const r = rng() < 0.4 ? g.act(id, { type: 'claimTake' }) : g.act(id, { type: 'claimPass' });
+        if (!r.ok && !/soldi/.test(r.error)) throw new Error('claim: ' + r.error);
+      }
+      if (g.phase === 'claim') g.claimEnd();
       return true;
     }
     case 'dare': {
@@ -152,13 +161,20 @@ function step(g, rng) {
       const c = g.choice;
       const r = c.kind === 'bus'
         ? g.act(cur.id, { type: 'busPick', pick: pick(rng, ['d1', 'd2', 'sum']) })
-        : g.act(cur.id, { type: 'warpTo', idx: (cur.pos + 1 + Math.floor(rng() * (g.N - 1))) % g.N });
+        : g.act(cur.id, { type: 'warpTo', idx: (() => { let i; do { i = (cur.pos + 1 + Math.floor(rng() * (g.N - 1))) % g.N; } while (g.BOARD[i].type === 'parking'); return i; })() });
       if (!r.ok) throw new Error('choose: ' + r.error);
       return true;
     }
     case 'action': {
       randomExtras(g, rng, cur);
       if (g.phase !== 'action') return true;
+      if (g.view(cur.id, new Set()).travel && rng() < 0.7) {
+        const t = g.view(cur.id, new Set()).travel;
+        const r = g.act(cur.id, { type: 'travel', idx: pick(rng, t) });
+        if (!r.ok) throw new Error('travel: ' + r.error);
+        stats.travels = (stats.travels || 0) + 1;
+        return true;
+      }
       randomManage(g, rng, cur);
       if (rng() < 0.1) randomTrade(g, rng, cur);
       const r = g.act(cur.id, { type: 'endTurn' });
@@ -168,6 +184,13 @@ function step(g, rng) {
     case 'debt': {
       const d = g.debts[0];
       const p = g.player(d.pid);
+      if (rng() < 0.3) {
+        const mine = g.owned(p.id).find((i) => g.props[i].houses === 0 && !g.props[i].mortgaged);
+        if (mine !== undefined && g.alive().length > 1) {
+          const r = g.act(p.id, { type: 'auctionOwn', idx: mine });
+          if (r.ok) { stats.emergency = (stats.emergency || 0) + 1; return true; }
+        }
+      }
       // prova a raccogliere soldi: vende edifici, ipoteca
       for (const i of g.owned(p.id)) {
         if (p.cash >= d.amount) break;
@@ -196,11 +219,13 @@ for (let n = 0; n < N; n++) {
   const seed = 1000 + n;
   const rng = mulberry32(seed);
   const g = new Game(rng);
-  g.setSettings({ boardSize: n % 5 === 4 ? 40 : 60, preset: n % 4 === 3 ? 'classic' : 'ultra', banker: n % 3 === 1, teams: n % 2 === 0, missions: n % 4 !== 3, bounty: n % 3 !== 0, dares: n % 5 !== 2, theme: ['italia', 'mondo', 'gola', 'potter'][n % 4] });
+  g.setSettings({ boardSize: n % 5 === 4 ? 40 : 60, preset: n % 4 === 3 ? 'classic' : 'ultra', missions: n % 4 !== 3, bounty: n % 3 !== 0, dares: n % 5 !== 2, theme: ['italia', 'mondo', 'gola', 'potter'][n % 4] });
   const np = 2 + (n % 7);
   for (let i = 0; i < np; i++) g.join('G' + i, TOKENS[i]);
   if (n % 3 === 0) g.settings.freeParking = !g.settings.freeParking;
   g.settings.auctions = n % 5 !== 0;
+  g.settings.freeBuy = n % 3 !== 1;
+  g.settings.auctionRound = [0, 4, 6, 10][n % 4];
   const hostId = g.hostId;
   g.act(hostId, { type: 'start' });
   let steps = 0;

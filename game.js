@@ -27,7 +27,7 @@ const BOUNTY_RENT = 100;
 const BOUNTY_JAIL = 150;
 const DARE_WIN = 100;
 const DARE_LOSE = 50;
-const BAD_EVENTS = ['quake', 'taxman', 'bankStrike', 'blackMarket'];
+const BAD_EVENTS = ['taxman', 'bankStrike', 'blackMarket'];
 // missioni segrete: ognuna ha un testo e un controllo
 const MISSIONS = {
   stations: { text: 'Possiedi 3 stazioni', check: (g, p) => g.owned(p.id).filter((i) => g.BOARD[i].type === 'station').length >= 3 },
@@ -43,11 +43,11 @@ const MAX_PLAYERS = 8;
 const MAX_ACES = 3;
 const SPEED_FACES = [1, 2, 3, 'J', 'J', 'B']; // Dado Matto: numeri, 2 Jolly, 1 Navetta
 const PRESETS = {
-  classic: { freeParking: false, auctions: true, speedDie: false, aces: false, events: false, cheat: false, banker: false, missions: false, bounty: false, teams: false, dares: false },
-  ultra: { freeParking: true, auctions: true, speedDie: true, aces: true, events: true, cheat: false, banker: false, missions: true, bounty: true, teams: false, dares: true },
+  classic: { freeParking: false, auctions: true, speedDie: false, aces: false, events: false, cheat: false, missions: false, bounty: false, dares: false, freeBuy: false },
+  ultra: { freeParking: true, auctions: true, speedDie: true, aces: true, events: true, cheat: false, missions: true, bounty: true, dares: true, freeBuy: true },
 };
-const FEATURES = ['speedDie', 'aces', 'events', 'cheat', 'banker', 'missions', 'bounty', 'teams', 'dares', 'freeParking', 'auctions']; // regole su cui si vota
-const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', maxRounds: 0, autoEnd: true, boardSize: 60, winWorth: 5000, timeLimit: 0, ...PRESETS.ultra };
+const FEATURES = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'dares', 'cheat', 'freeParking', 'auctions', 'freeBuy']; // regole su cui si vota
+const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', maxRounds: 0, autoEnd: true, boardSize: 60, winWorth: 5000, timeLimit: 0, auctionRound: 6, ...PRESETS.ultra };
 
 function shuffle(arr, rng) {
   const a = arr.slice();
@@ -82,6 +82,9 @@ class Game {
     this.eventSeq = 0;
     this.round = 0;
     this.roundTurns = 0;
+    this.claim = null;
+    this.claimSeq = 0;
+    this.travel = null;
     this.dare = null;        // sfida in corso
     this.dareSeq = 0;
     this.startedAt = 0;
@@ -256,11 +259,16 @@ class Game {
       if (!THEMES[s.theme]) fail('Tema non valido.');
       this.settings.theme = s.theme;
     }
-    for (const k of ['freeParking', 'showCash', 'auctions', 'speedDie', 'aces', 'events', 'cheat', 'banker', 'missions', 'bounty', 'teams', 'dares', 'autoEnd']) if (s[k] !== undefined) this.settings[k] = !!s[k];
+    for (const k of ['freeParking', 'showCash', 'auctions', 'speedDie', 'aces', 'events', 'cheat', 'missions', 'bounty', 'dares', 'freeBuy', 'autoEnd']) if (s[k] !== undefined) this.settings[k] = !!s[k];
     if (s.winWorth !== undefined) {
       const v = Number(s.winWorth);
       if (![0, 3000, 5000, 8000].includes(v)) fail('Traguardo non valido.');
       this.settings.winWorth = v;
+    }
+    if (s.auctionRound !== undefined) {
+      const v = Number(s.auctionRound);
+      if (![0, 4, 6, 10, 15].includes(v)) fail('Valore non valido.');
+      this.settings.auctionRound = v;
     }
     if (s.timeLimit !== undefined) {
       const v = Number(s.timeLimit);
@@ -324,7 +332,9 @@ class Game {
     this.startedAt = Date.now();
     this.dare = null; this.bountyId = null; this.winners = [];
     const np = this.players.length;
-    this.teamsOn = !!this.settings.teams && np >= 4 && np % 2 === 0;
+    this.settings.teams = false; this.settings.banker = false; this.bankerId = null;
+    if (this.settings.auctionRound === undefined) this.settings.auctionRound = 6;
+    this.teamsOn = false;
     for (const [i, q] of this.players.entries()) {
       q.team = this.teamsOn ? i % (np / 2) : null;
       q.mission = null; q.missionsDone = 0;
@@ -358,6 +368,7 @@ class Game {
     const total = d1 + d2 + num3, dbl = d1 === d2;
     this.dice = { d1, d2, d3, seq: this.dice.seq + 1 };
     this.card = null;
+    this.travel = null;
     const extra = d3 === 'J' ? ' + 🃏 Jolly' : d3 === 'B' ? ' + 🚌 Navetta' : num3 ? ` + ${num3}` : '';
     this.addLog('dice', `${p.emoji} ${p.name} tira ${d1} + ${d2}${extra}${dbl ? ' (doppio!)' : ''}`);
     if (p.inJail) {
@@ -371,8 +382,7 @@ class Game {
         p.jailTurns++;
         this.canRollAgain = false;
         if (p.jailTurns >= 3) {
-          this.addLog('jail', `${p.name} paga la multa di ${eur(JAIL_FINE)} ed esce di prigione`);
-          this.addDebt({ pid: p.id, amount: JAIL_FINE, creditor: 'bank', reason: 'multa di uscita' });
+          this.addLog('jail', `${p.name} ha scontato 3 turni: esce di prigione gratis!`);
           this.cont = { type: 'jailMove', steps: total };
           this.proceed();
         } else {
@@ -428,6 +438,7 @@ class Game {
     if (!c || c.kind !== 'tris') fail('Nessuna scelta da fare.');
     if (!Number.isInteger(idx) || idx < 0 || idx >= this.N) fail('Casella non valida.');
     if (idx === p.pos) fail('Sei già lì.');
+    if (this.BOARD[idx].type === 'parking') fail('La Pausa Aperitivo si raggiunge solo con i dadi!');
     this.choice = null;
     this.teleport(p, idx);
   }
@@ -464,7 +475,7 @@ class Game {
       return;
     }
     const gold = this.event && this.event.key === 'bonusGo';
-    const amount = GO_BONUS * (gold ? 2 : 1);
+    const amount = (this.settings.cheat ? 200 : 400) * (gold ? 2 : 1);
     this.bankPay(p, amount, 'Partenza');
     this.addLog('go', `${p.name} passa dalla Partenza e ritira ${eur(amount)}${gold ? ' (Partenza d\'oro!)' : ''}`);
     if (this.settings.aces && this.rng() < 0.6) this.giveAce(p);
@@ -604,6 +615,7 @@ class Game {
         if (p.inJail) fail('Sei in prigione.');
         const q = other();
         if (q.inJail || q.pos === p.pos) fail('Non puoi scambiare con lei adesso.');
+        if (this.BOARD[q.pos].type === 'parking') fail('Non puoi scambiare con chi è alla Pausa Aperitivo.');
         use();
         if (!this.attackOk(q)) { break; }
         [p.pos, q.pos] = [q.pos, p.pos];
@@ -617,6 +629,7 @@ class Game {
         if (p.inJail) fail('Sei in prigione.');
         const idx = Number(a.idx);
         if (!Number.isInteger(idx) || idx < 0 || idx >= this.N || idx === p.pos) fail('Casella non valida.');
+        if (this.BOARD[idx].type === 'parking') fail('La Pausa Aperitivo si raggiunge solo con i dadi!');
         use();
         this.canRollAgain = false;
         this.teleport(p, idx);
@@ -684,7 +697,11 @@ class Game {
           this.addLog('land', `${p.emoji} ${p.name} arriva a ${this.nm(p.pos)} (libera, ${eur(this.priceOf(p.pos))})`);
           return;
         }
-        if (pr.owner === p.id) { this.addLog('land', `${p.name} è a casa sua: ${this.nm(p.pos)}`); break; }
+        if (pr.owner === p.id) {
+          this.addLog('land', `${p.name} è a casa sua: ${this.nm(p.pos)}`);
+          if (sq.type === 'station' && !opts.noTravel && this.stationsOf(p).length > 1) this.travel = { pid: p.id, from: p.pos };
+          break;
+        }
         if (this.teamsOn && this.player(pr.owner) && this.player(pr.owner).team === p.team) { this.addLog('land', `${p.name} è da una compagna di squadra: niente affitto`); break; }
         if (pr.mortgaged) { this.addLog('land', `${this.nm(p.pos)} è ipotecata: nessun affitto`); break; }
         if (sq.type === 'util' && opts.utilTen) {
@@ -749,6 +766,11 @@ class Game {
   }
 
   // tutte le proprietà vendute? Comincia la fase finale: i malus peggiorano
+  // quanta parte delle proprietà è già comprata (0..1): misura quanto siamo avanti nella partita
+  progress() {
+    const ks = Object.keys(this.props);
+    return ks.length ? ks.filter((i) => this.props[i].owner).length / ks.length : 0;
+  }
   isLate() {
     for (const i in this.props) if (!this.props[i].owner) return false;
     return true;
@@ -765,7 +787,7 @@ class Game {
 
   randomJump(p) {
     const ok = [];
-    this.BOARD.forEach((q, i) => { if (i !== p.pos && !['jail', 'gotojail', 'teleport'].includes(q.type)) ok.push(i); });
+    this.BOARD.forEach((q, i) => { if (i !== p.pos && !['jail', 'gotojail', 'teleport', 'parking'].includes(q.type)) ok.push(i); });
     const idx = ok[Math.floor(this.rng() * ok.length)];
     p.pos = idx;
     this.addLog('move', `🌀 ${p.emoji} ${p.name} compare a ${this.nm(idx)}`);
@@ -890,7 +912,7 @@ class Game {
         else { p.cash += 50; this.addLog('card', `${p.name} incassa ${eur(50)} al posto dell'asso`); }
         break;
       case 'swapRandom': {
-        const vs = this.alive().filter((q) => q.id !== p.id && !q.inJail && q.pos !== p.pos);
+        const vs = this.alive().filter((q) => q.id !== p.id && !q.inJail && q.pos !== p.pos && this.BOARD[q.pos].type !== 'parking');
         if (!vs.length || p.inJail) break;
         const q = vs[Math.floor(this.rng() * vs.length)];
         if (!this.attackOk(q)) break;
@@ -1068,6 +1090,7 @@ class Game {
     this.checkMissions();
     this.updateBounty();
     this.dare = null;
+    this.travel = null;
     this.doubles = 0;
     this.canRollAgain = false;
     this.cont = null;
@@ -1124,6 +1147,19 @@ class Game {
       return true;
     }
     return false;
+  }
+
+  stationsOf(p) { return this.owned(p.id).filter((i) => this.BOARD[i].type === 'station' && !this.props[i].mortgaged); }
+  travelTo(p, idx) {
+    this.needTurn(p, 'action');
+    const t = this.travel;
+    if (!t || t.pid !== p.id || p.pos !== t.from) fail('Puoi viaggiare solo appena arrivi su una tua stazione.');
+    if (!this.stationsOf(p).includes(idx) || idx === p.pos) fail('Scegli un\'altra tua stazione.');
+    this.travel = null;
+    if (idx < p.pos) this.passGo(p);
+    p.pos = idx;
+    this.addLog('move', `🚆 ${p.emoji} ${p.name} viaggia in treno fino a ${this.nm(idx)}`);
+    this.land(p, { noTravel: true });
   }
 
   // ---------- squadre, missioni, taglia ----------
@@ -1187,8 +1223,15 @@ class Game {
       return;
     }
     if (!this.settings.events) return;
-    let keys = Object.keys(EVENTS);
-    if (this.isLate()) keys = keys.concat(BAD_EVENTS);
+    // all'inizio gli eventi sono rari e gentili; i cattivi arrivano solo nella fase finale
+    const late = this.isLate();
+    if (this.rng() > (late ? 0.7 : 0.3 + 0.2 * this.progress())) { this.event = null; return; }
+    // gli eventi cattivi diventano sempre più probabili man mano che le proprietà si comprano
+    const pr = this.progress();
+    const badChance = late ? 0.6 : Math.max(0, (pr - 0.5) / 0.5) * 0.4;
+    const allowBad = this.rng() < badChance;
+    let keys = Object.keys(EVENTS).filter((k) => !BAD_EVENTS.includes(k));
+    if (allowBad) keys = BAD_EVENTS.slice();
     let key = keys[Math.floor(this.rng() * keys.length)];
     if (this.event && key === this.event.key) key = keys[(keys.indexOf(key) + 1) % keys.length];
     const ev = { key, ...EVENTS[key] };
@@ -1201,18 +1244,9 @@ class Game {
     this.event = ev;
     this.addLog('event', `${ev.icon} ${ev.title}: ${ev.text}`);
     if (key === 'bonus') for (const q of this.alive()) q.cash += 50;
-    if (key === 'quake') {
-      for (const q of this.alive()) {
-        const list = this.owned(q.id).filter((i) => { const h = this.props[i].houses; return h > 0 && !(h === 5 && this.housesLeft() < 4) && !(h === 6 && this.hotelsLeft() <= 0); });
-        if (!list.length) continue;
-        const i = list[Math.floor(this.rng() * list.length)];
-        this.props[i].houses--;
-        this.addLog('event', `🌋 ${q.name} perde un edificio a ${this.nm(i)}`);
-      }
-    }
     if (key === 'taxman') {
       for (const q of this.alive()) {
-        const amt = Math.min(q.cash, Math.round((q.cash * 0.05) / 10) * 10);
+        const amt = Math.min(q.cash, Math.round((q.cash * 0.03) / 10) * 10);
         if (amt <= 0) continue;
         q.cash -= amt;
         if (this.settings.freeParking) this.pot += amt;
@@ -1234,9 +1268,65 @@ class Game {
 
   declineBuy(p) {
     this.needTurn(p, 'buy');
-    const sq = this.BOARD[p.pos];
-    if (this.settings.auctions) this.startAuction(p.pos);
+    const fb = this.settings.freeBuy;
+    const aucOk = this.settings.auctions && (!fb || this.round >= (this.settings.auctionRound || 0));
+    if (aucOk) this.startAuction(p.pos);
+    else if (fb) this.startClaim(p);
     else { this.addLog('buy', `${p.name} non compra ${this.nm(p.pos)}`); this.proceed(); }
+  }
+
+  // acquisto libero: chi non compra la lascia libera; le altre possono "richiederla" a prezzo di listino
+  // e chi l'ha lasciata prende il 10% come commissione
+  startClaim(p) {
+    const price = this.priceOf(p.pos);
+    const eligible = this.alive().filter((q) => q.id !== p.id && q.cash >= price).map((q) => q.id);
+    this.addLog('buy', `${p.name} non compra ${this.nm(p.pos)}`);
+    if (!eligible.length) { this.proceed(); return; }
+    this.claim = { seq: ++this.claimSeq, idx: p.pos, from: p.id, price, eligible, passed: [], until: Date.now() + 25000 };
+    this.phase = 'claim';
+    this.addLog('sale', `🙋 ${this.nm(p.pos)} è libera a ${eur(price)}: chi la vuole? (${p.name} prende il 10%)`);
+  }
+  claimTake(p) {
+    const c = this.claim;
+    if (this.phase !== 'claim' || !c) fail('Nessuna proprietà da richiedere.');
+    if (!c.eligible.includes(p.id)) fail('Non puoi richiederla.');
+    if (p.cash < c.price) fail('Non hai abbastanza soldi.');
+    const from = this.player(c.from);
+    const fee = Math.round((c.price * 0.1) / 10) * 10;
+    p.cash -= c.price;
+    if (from && !from.bankrupt) from.cash += fee;
+    this.props[c.idx].owner = p.id;
+    this.claim = null;
+    this.addLog('buy', `🙋 ${p.emoji} ${p.name} la richiede e prende ${this.nm(c.idx)} per ${eur(c.price)} (${from ? from.name : ''} prende ${eur(fee)})`);
+    this.notify('🙋', 'La voglio io!', `${p.name} prende ${this.nm(c.idx)} per ${eur(c.price)}`, 'good', p.id);
+    this.proceed();
+  }
+  claimPass(p) {
+    const c = this.claim;
+    if (this.phase !== 'claim' || !c) fail('Nessuna proprietà da richiedere.');
+    if (!c.passed.includes(p.id)) c.passed.push(p.id);
+    if (c.eligible.every((id) => c.passed.includes(id))) this.claimEnd();
+  }
+  claimEnd() {
+    if (this.phase !== 'claim') return;
+    const c = this.claim;
+    this.claim = null;
+    if (c) this.addLog('buy', `Nessuna vuole ${this.nm(c.idx)}: resta libera`);
+    this.proceed();
+  }
+
+  // asta d'emergenza: per pagare un debito metti all'asta una tua proprietà (senza edifici). Ti rientra il 70%.
+  auctionOwn(p, idx) {
+    if (this.phase !== 'debt' || !this.debts.length || this.debts[0].pid !== p.id) fail('Puoi farlo solo quando devi pagare un debito.');
+    const pr = this.props[idx];
+    if (!pr || pr.owner !== p.id) fail('Non è tua.');
+    if (pr.houses > 0) fail('Prima vendi gli edifici.');
+    if (pr.mortgaged) fail('È ipotecata.');
+    const others = this.alive().filter((q) => q.id !== p.id).map((q) => q.id);
+    if (!others.length) fail('Non c\'è nessuna a cui venderla.');
+    this.auction = { idx, high: 0, bidder: null, active: others, seller: p.id };
+    this.phase = 'auction';
+    this.addLog('auction', `🔨 ${p.name} mette all'asta ${this.nm(idx)} per pagare i debiti (le rientra il 70%)`);
   }
 
   // Invece di comprare o fare l'asta: offro la proprietà a UNA giocatrice a un prezzo deciso da me
@@ -1320,6 +1410,12 @@ class Game {
     const w = a.bidder ? this.player(a.bidder) : null;
     if (w && !w.bankrupt && w.cash >= a.high) {
       w.cash -= a.high;
+      if (a.seller) {
+        const sl = this.player(a.seller);
+        const back = Math.floor(a.high * 0.7);
+        if (sl) sl.cash += back;
+        this.addLog('buy', `🔨 ${sl ? sl.name : ''} incassa ${eur(back)} (70%) dall'asta`);
+      }
       this.props[a.idx].owner = w.id;
       this.addLog('buy', `${w.emoji} ${w.name} vince l'asta e prende ${sq.name} per ${eur(a.high)}`);
     } else this.addLog('auction', `Nessuno compra ${sq.name}`);
@@ -1557,6 +1653,7 @@ class Game {
     if (this.phase === 'auction') this.checkAuction(true);
     else if (this.phase === 'sale') { this.sale = null; this.phase = 'buy'; }
     else if (this.phase === 'dare') this.dareAnswer(this.cur, false);
+    else if (this.phase === 'claim') this.claimEnd();
   }
 
   // ---------- jail ----------
@@ -1625,6 +1722,10 @@ class Game {
         case 'saleDecline': this.saleAnswer(p, false); break;
         case 'saleCancel': this.saleCancel(p); break;
         case 'dareAnswer': this.dareAnswer(p, !!a.done); break;
+        case 'claimTake': this.claimTake(p); break;
+        case 'claimPass': this.claimPass(p); break;
+        case 'auctionOwn': this.auctionOwn(p, Number(a.idx)); break;
+        case 'travel': this.travelTo(p, Number(a.idx)); break;
         case 'bid': this.bid(p, a.amount); break;
         case 'pass': this.passAuction(p); break;
         case 'endTurn': this.endTurn(p); break;
@@ -1728,6 +1829,8 @@ class Game {
       housesLeft: this.housesLeft(), hotelsLeft: this.hotelsLeft(),
       winner: this.winner, winners: this.winners, ranking: this.ranking,
       dare: this.phase === 'dare' ? this.dare : null,
+      claim: this.phase === 'claim' ? this.claim : null,
+      travel: me && this.travel && this.travel.pid === me.id && me.pos === this.travel.from && this.stationsOf(me).includes(me.pos) && this.phase === 'action' ? this.stationsOf(me).filter((i) => i !== me.pos) : null,
       bountyId: s.bounty ? this.bountyId : null,
       teamsOn: this.teamsOn,
       endsAt: this.status === 'playing' && s.timeLimit && this.startedAt ? this.startedAt + s.timeLimit * 60000 : null,

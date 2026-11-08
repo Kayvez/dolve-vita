@@ -132,8 +132,22 @@ function scheduleAuto() {
     }
   }, delay);
 }
+let claimTimer = null, claimKey = '';
+function scheduleClaim() {
+  const g = game;
+  if (g.status !== 'playing' || g.phase !== 'claim' || !g.claim) { clearTimeout(claimTimer); claimTimer = null; claimKey = ''; return; }
+  const key = String(g.claim.seq);
+  if (key === claimKey) return;
+  claimKey = key;
+  clearTimeout(claimTimer);
+  claimTimer = setTimeout(() => {
+    claimTimer = null;
+    if (game.status === 'playing' && game.phase === 'claim' && game.claim && String(game.claim.seq) === claimKey) { game.claimEnd(); broadcast(); }
+  }, Math.max(1000, g.claim.until - Date.now()));
+}
 function broadcast() {
   scheduleAuto();
+  scheduleClaim();
   const connected = connectedIds();
   for (const c of clients) push(c, connected);
   save();
@@ -255,6 +269,7 @@ const server = http.createServer((req, res) => {
       'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive', 'X-Accel-Buffering': 'no',
     });
+    try { req.socket.setNoDelay(true); } catch (e) { /* */ }
     res.write('retry: 1500\n\n');
     const c = { res, pid: player ? player.id : null, role };
     clients.add(c);

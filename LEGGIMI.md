@@ -125,6 +125,17 @@ Sei regole nuove, tutte votabili dalla lobby (come le altre):
 - 👯 **Squadre**: con 4 o 6 giocatrici si gioca in coppie. Le compagne non si pagano affitti. Vince la coppia che arriva a 1,6 volte il traguardo (somma dei patrimoni).
 - 🎭 **Sfide**: carte "obbligo" da fare dal vivo. Fatta +€100, rifiutata −€50.
 - ⏰ **Timer**: dalla lobby (chip "⏰") si sceglie 30/45/60/90 minuti: a tempo scaduto vince chi ha più patrimonio. Il conto alla rovescia è sul tabellone e sul telefono.
-- 🌋 **Eventi cattivi**: terremoto, controllo fiscale, sciopero della banca, mercato nero. Escono soprattutto nella fase finale.
+- 🌋 **Eventi cattivi**: controllo fiscale, sciopero della banca, mercato nero. Escono soprattutto nella fase finale.
 
 Nessuna nuova impostazione tecnica: Upstash resta com'è.
+
+## Novità 4.3
+
+- 🍹 La Pausa Aperitivo si raggiunge solo con i dadi (non con assi, Tris, Teletrasporto…).
+- 🚔 In prigione, al terzo turno si esce gratis.
+- ⚡ Più carte Imprevisto che fanno guadagnare.
+- 🙋 **Acquisto libero** (opzione votabile): puoi non comprare e lasciare la proprietà libera; le altre possono richiederla a prezzo di listino e a te va il 10%. L'asta si sblocca dal giro scelto nella lobby (chip 🔨).
+- 🔨 **Asta d'emergenza**: se devi pagare e non hai soldi, puoi mettere all'asta una tua proprietà (senza edifici): ti rientra il 70%.
+- 🚆 **Viaggio tra stazioni**: su una tua stazione puoi spostarti gratis in un'altra tua stazione (se passi dal Via incassi).
+- 💰 Il Via dà €400, oppure €200 se i Furbetti sono attivi.
+- Tolte le opzioni Squadre e Banchiere.

@@ -26,7 +26,8 @@ const by = (g, name) => g.players.find((p) => p.name === name);
 const give = (g, p, idx) => { g.props[idx].owner = p.id; };
 
 let passed = 0;
-const t = (name, fn) => { fn(); passed++; console.log('ok -', name); };
+const fails = [];
+const t = (name, fn) => { try { fn(); passed++; console.log('ok -', name); } catch (e) { fails.push(name); console.log('FAIL -', name, '::', String(e.message).split('\n')[0].slice(0,100), (e.stack.split('\n').find((l) => l.includes('rules.js')) || '').trim()); } };
 
 t('lancio, movimento e acquisto', () => {
   const g = newGame();
@@ -78,7 +79,7 @@ t('passaggio dalla Partenza', () => {
   dice(1, 2); // -> 1 (I Sassi)
   g.act(p.id, { type: 'roll' });
   assert.strictEqual(p.pos, 1);
-  assert.strictEqual(p.cash, 1700);
+  assert.strictEqual(p.cash, 1900); // €400 al Via (senza furbetti)
 });
 
 t('tre doppi di fila = prigione', () => {
@@ -119,14 +120,14 @@ t('prigione: pagare e tirare, o fare doppio', () => {
   assert.strictEqual(g2.canRollAgain, false);
 });
 
-t('prigione: dopo 3 tentativi paga e si muove', () => {
+t('prigione: dopo 3 turni esce gratis e si muove', () => {
   const g = newGame(2);
   const p = g.cur;
   p.inJail = true; p.pos = 10; p.jailTurns = 2;
   dice(1, 2); // 3, non doppio
   g.act(p.id, { type: 'roll' });
   assert.ok(!p.inJail);
-  assert.strictEqual(p.cash, 1450);
+  assert.strictEqual(p.cash, 1500);
   assert.strictEqual(p.pos, 13);
 });
 
@@ -392,13 +393,13 @@ t('eventi: partenza d\'oro, tregua, saldi', () => {
   const [a, b] = g.players;
   g.event = { key: 'bonusGo', icon: '', title: 'x', text: '' };
   g.passGo(a);
-  assert.strictEqual(a.cash, 1900);
+  assert.strictEqual(a.cash, 2300);
   g.event = { key: 'truce', icon: '', title: 'Tregua', text: '' };
   give(g, b, 3);
   a.pos = 0; g.turnIdx = 0; g.phase = 'roll';
   g.settings.speedDie = false;
   dice(1, 2); g.act(a.id, { type: 'roll' });
-  assert.strictEqual(a.cash, 1900);
+  assert.strictEqual(a.cash, 2300);
   g.event = { key: 'saldi', icon: '', title: 'Saldi', text: '' };
   assert.strictEqual(g.priceOf(1), 50); // 60 -> 48 -> 50
 });
@@ -455,32 +456,7 @@ t('perms: i bottoni grigi hanno un motivo', () => {
   assert.ok(v.perms[1].why.build);
 });
 
-t('banchiere furbo: paga a mano, trattiene, accusa giusta e sbagliata', () => {
-  const g = newUltra(3, { banker: true });
-  const b = g.banker();
-  const [x, y] = g.players.filter((q) => q.id !== b.id);
-  g.bankPay(x, 200, 'Partenza');
-  assert.strictEqual(x.cash, 1500);              // non ancora pagata
-  assert.strictEqual(g.view(x.id).incoming[0].amount, 200);
-  assert.ok(!g.act(x.id, { type: 'payBanker', id: g.payouts[0].id, pct: 100 }).ok); // solo il banchiere
-  const bank0 = b.cash;
-  assert.ok(g.act(b.id, { type: 'payBanker', id: g.payouts[0].id, pct: 50 }).ok);
-  assert.strictEqual(x.cash, 1600); assert.strictEqual(b.cash, bank0 + 100);
-  g.act(x.id, { type: 'accuseBanker' });          // giusta: il banchiere restituisce il doppio (200)
-  assert.strictEqual(x.cash, 1800); assert.strictEqual(b.cash, bank0 - 100);
-  assert.ok(!g.act(x.id, { type: 'accuseBanker' }).ok); // una a giro
-  g.act(y.id, { type: 'accuseBanker' });          // sbagliata: paga 50
-  assert.strictEqual(y.cash, 1450);
-});
 
-t('banchiere: i pagamenti non gestiti arrivano interi a fine turno', () => {
-  const g = newUltra(3, { banker: true });
-  const x = g.players.find((q) => q.id !== g.bankerId);
-  g.bankPay(x, 100, 'carta');
-  g.phase = 'action'; g.nextTurn();
-  assert.strictEqual(x.cash, 1600);
-  assert.strictEqual(g.payouts.length, 0);
-});
 
 
 function new60(n = 3) {
@@ -682,25 +658,6 @@ t('taglia: la più ricca ha la taglia, chi incassa l\'affitto prende €100 extr
   assert.ok(b.cash >= bc + 100, 'taglia incassata');
 });
 
-t('squadre: compagne non si pagano affitto, vittoria di coppia', () => {
-  const g = new4({ teams: true });
-  assert.ok(g.teamsOn);
-  const mate = g.players.find((q) => q.id !== g.cur.id && q.team === g.cur.team);
-  assert.ok(mate);
-  const idx = Object.keys(g.props).map(Number).find((i) => g.BOARD[i].type === 'street');
-  g.props[idx].owner = mate.id;
-  const p = g.cur; const c0 = p.cash;
-  p.pos = idx; g.land(p, {});
-  assert.strictEqual(p.cash, c0);
-  assert.strictEqual(g.debts.length, 0);
-  g.settings.winWorth = 3000;
-  mate.cash = 3000; p.cash = 2000; g.phase = 'action';
-  g.act(p.id, { type: 'endTurn' });
-  assert.strictEqual(g.status, 'ended');
-  assert.strictEqual(g.winners.length, 2);
-  const g3 = new4({ teams: true }, 3);
-  assert.ok(!g3.teamsOn, 'con 3 giocatrici niente squadre');
-});
 
 t('sfide: fatta +€100, rifiutata -€50, spente = €40', () => {
   const mk = (on) => {
@@ -744,8 +701,7 @@ t('eventi cattivi: terremoto, controllo fiscale, sciopero banca, mercato nero', 
   const E = require('../public/shared/data.js').EVENTS;
   const force = (key) => { const keep = g.rng; g.rng = () => 0; g.event = null; g.round = 1; const k = Object.keys(E); g.rng = keep; g.event = { key, ...E[key] }; };
   // simulazione diretta della parte "effetto" passando da newRound con rng pilotato
-  const run = (key) => { const idx = Object.keys(E).concat(['quake','taxman','bankStrike','blackMarket']).indexOf(key); g.event = null; g.rng = () => (idx + 0.5) / (Object.keys(E).length); g.newRound(); };
-  g.event = { key: 'quake', ...E.quake };
+  const run = (key) => { const idx = Object.keys(E).concat(['taxman','bankStrike','blackMarket']).indexOf(key); g.event = null; g.rng = () => (idx + 0.5) / (Object.keys(E).length); g.newRound(); };
   // applichiamo l'effetto chiamando newRound con evento scelto: più semplice testare gli effetti derivati
   g.event = { key: 'blackMarket', ...E.blackMarket };
   const free = sts.find((i) => !g.props[i].owner);
@@ -753,6 +709,92 @@ t('eventi cattivi: terremoto, controllo fiscale, sciopero banca, mercato nero', 
   g.event = { key: 'bankStrike', ...E.bankStrike };
   const c0 = p.cash; g.passGo(p);
   assert.strictEqual(p.cash, c0);
+});
+
+
+t('aperitivo solo con i dadi: né Tris, né asso, né teletrasporto', () => {
+  const g = new4({});
+  const p = g.cur;
+  const park = g.BOARD.findIndex((q) => q.type === 'parking');
+  g.phase = 'choose'; g.choice = { kind: 'tris' };
+  assert.ok(!g.act(p.id, { type: 'warpTo', idx: park }).ok);
+  for (let k = 0; k < 300; k++) { g.randomJump(p); assert.notStrictEqual(p.pos, park); }
+});
+
+t('Via: €400 senza furbetti, €200 con i furbetti', () => {
+  let g = new4({ cheat: false }); let p = g.cur; let c = p.cash; g.passGo(p);
+  assert.strictEqual(p.cash, c + 400);
+  g = new4({ cheat: true }); p = g.cur; c = p.cash; g.passGo(p);
+  assert.strictEqual(p.cash, c + 200);
+});
+
+t('acquisto libero: chi la richiede paga il listino e chi l\'ha lasciata prende il 10%', () => {
+  const g = new4({ freeBuy: true, auctions: true, auctionRound: 6 });
+  const [a, b] = [g.cur, g.players.find((q) => q.id !== g.cur.id)];
+  const idx = g.BOARD.findIndex((q) => q.type === 'street');
+  a.pos = idx; g.land(a, {});
+  assert.strictEqual(g.phase, 'buy');
+  const price = g.priceOf(idx), ca = a.cash, cb = b.cash;
+  g.act(a.id, { type: 'decline' });
+  assert.strictEqual(g.phase, 'claim', 'niente asta nei primi giri');
+  assert.ok(g.act(b.id, { type: 'claimTake' }).ok);
+  assert.strictEqual(g.props[idx].owner, b.id);
+  assert.strictEqual(b.cash, cb - price);
+  assert.strictEqual(a.cash, ca + Math.round(price * 0.1 / 10) * 10);
+  assert.strictEqual(g.phase, 'action');
+});
+
+t('acquisto libero: se nessuna la vuole resta libera; dal giro stabilito parte l\'asta', () => {
+  const g = new4({ freeBuy: true, auctions: true, auctionRound: 6 });
+  const a = g.cur;
+  const idx = g.BOARD.findIndex((q) => q.type === 'street');
+  a.pos = idx; g.land(a, {});
+  g.act(a.id, { type: 'decline' });
+  for (const q of g.players) if (q.id !== a.id) g.act(q.id, { type: 'claimPass' });
+  assert.strictEqual(g.phase, 'action');
+  assert.ok(!g.props[idx].owner);
+  g.round = 6; g.phase = 'resolving'; a.pos = idx; g.land(a, {});
+  g.act(a.id, { type: 'decline' });
+  assert.strictEqual(g.phase, 'auction');
+});
+
+t('asta d\'emergenza: al debitore rientra il 70%', () => {
+  const g = new4({});
+  const [a, b] = g.players;
+  const idx = g.BOARD.findIndex((q) => q.type === 'street');
+  g.props[idx].owner = a.id;
+  a.cash = 0; b.cash = 1000;
+  g.turnIdx = g.players.indexOf(a);
+  g.addDebt({ pid: a.id, amount: 100, creditor: 'bank', reason: 'prova', kind: 'tax' });
+  g.phase = 'debt';
+  assert.ok(g.act(a.id, { type: 'auctionOwn', idx }).ok);
+  assert.strictEqual(g.phase, 'auction');
+  g.act(b.id, { type: 'bid', amount: 200 });
+  for (const q of g.players) if (q.id !== b.id) g.act(q.id, { type: 'pass' });
+  assert.strictEqual(g.props[idx].owner, b.id);
+  assert.strictEqual(b.cash, 800);
+  assert.strictEqual(a.cash, 40); // 140 incassati (70% di 200) - 100 di debito
+  assert.strictEqual(g.debts.length, 0);
+});
+
+t('viaggio in treno tra le tue stazioni, e se passi dal Via incassi', () => {
+  const g = new4({});
+  const st = g.BOARD.map((q, i) => (q.type === 'station' ? i : -1)).filter((i) => i >= 0);
+  const p = g.cur;
+  g.props[st[0]].owner = p.id; g.props[st[1]].owner = p.id;
+  p.pos = st[1]; g.phase = 'resolving'; g.land(p, {});
+  assert.deepStrictEqual(g.view(p.id, new Set()).travel, [st[0]]);
+  const c = p.cash;
+  assert.ok(g.act(p.id, { type: 'travel', idx: st[0] }).ok);
+  assert.strictEqual(p.pos, st[0]);
+  assert.strictEqual(p.cash, c + 400); // tornando indietro si passa dal Via
+  p.pos = st[0]; g.phase = 'resolving'; g.land(p, {});
+  const c2 = p.cash;
+  g.act(p.id, { type: 'travel', idx: st[1] });
+  assert.strictEqual(p.cash, c2);
+  p.pos = st[1]; g.phase = 'resolving'; g.land(p, {});
+  g.act(p.id, { type: 'travel', idx: st[0] });
+  assert.ok(g.travel === null);
 });
 
 console.log(`\n${passed} test passati`);
