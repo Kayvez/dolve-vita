@@ -217,6 +217,10 @@
     taxman: { icon: '🧾', title: 'Controllo fiscale', text: 'Tutte pagano subito il 3% dei loro soldi.' },
     bankStrike: { icon: '🏦', title: 'Sciopero della banca', text: 'La banca è chiusa: la Partenza non paga niente!' },
     blackMarket: { icon: '🕶️', title: 'Mercato nero', text: 'Le proprietà costano il 30% in più.' },
+    robinHood: { icon: '🏹', title: 'Robin Hood', text: 'La più ricca regala soldi alla più povera!' },
+    rentUp: { icon: '📈', title: 'Affitti alle stelle', text: 'In questo giro tutti gli affitti costano il 50% in più.' },
+    noBuild: { icon: '👷', title: 'Sciopero dei muratori', text: 'In questo giro nessuno può costruire.' },
+    quake: { icon: '🏚️', title: 'Terremoto!', text: 'Crolla una casa a caso. Meglio non avere troppi edifici…' },
   };
 
   // ---------- temi del tabellone: cambiano solo i nomi ----------
@@ -296,8 +300,8 @@
       long: ['La giocatrice con più patrimonio ha la taglia: tutte lo vedono.', 'Chi si fa pagare l\'affitto da lei incassa €100 in più; chi la manda in prigione con una carta prende €150.'] },
     teams: { icon: '👯', title: 'Squadre', short: 'Si gioca in coppie (con 4 o 6 giocatrici).',
       long: ['Le squadre si formano a caso. Le compagne non si pagano affitti.', 'Vince la squadra che arriva a 1,6 volte il traguardo di patrimonio (somma delle due), o l\'ultima rimasta.', 'Funziona solo con un numero pari di giocatrici, almeno 4: altrimenti si gioca tutte contro tutte.'] },
-    dares: { icon: '🎭', title: 'Sfide', short: 'Carte "obbligo" da fare dal vivo.',
-      long: ['Nei mazzi ci sono carte Sfida: devi fare una cosa buffa davanti a tutte.', 'Se la fai prendi €100, se rifiuti paghi €50. Decidete voi se vale!'] },
+    dares: { icon: '🎭', title: 'Sfide', short: 'Obblighi da fare dal vivo, anche a sorpresa.',
+      long: ['Nei mazzi ci sono carte Sfida, e ogni tanto arriva una ⚡ Sfida lampo a inizio turno: devi fare una cosa buffa davanti a tutte.', 'Se la fai prendi dei soldi, se rifiuti ne paghi (di più se la cattiveria è alta). Decidete voi se vale!'] },
     freeBuy: { icon: '🙋', title: 'Acquisto libero', short: 'Puoi non comprare: le altre possono prenderla.',
       long: ['Se non vuoi comprare una proprietà la lasci libera (niente asta nei primi giri).', 'Le altre possono richiederla al prezzo di listino: a te va il 10%.', 'L\'asta si sblocca dal giro scelto nella lobby (chip 🔨).'] },
     freeParking: { icon: '🍹', title: 'Piatto dell\'aperitivo', short: 'Tasse e multe finiscono al centro.',
@@ -306,5 +310,6 @@
       long: ['Tutte possono rilanciare (+10, +50, +100). Vince l\'offerta più alta. In alternativa chi è arrivata sulla proprietà può offrirla a una sola giocatrice a un prezzo suo.'] },
   };
 
-  return { BASICS, SPECIALS, RULES, TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, BOARDS, SQ, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
+  const HEAT = { 1: { icon: '😇', name: 'Dolce' }, 2: { icon: '😏', name: 'Pepata' }, 3: { icon: '😈', name: 'Cattivissima' } };
+  return { HEAT, BASICS, SPECIALS, RULES, TITLE, GROUP_COLORS, GROUP_NAMES, HOUSE_COST, BOARD, BOARDS, SQ, CARDS, ACES, EVENTS, THEMES, nameOf, TOKENS, COLORS };
 });

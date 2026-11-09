@@ -150,3 +150,14 @@ nav .bd { position: absolute; top: 4px; left: 58%; background: var(--red); color
 .xbar .bad { color: #ff9a9a; font-weight: 700; }
 .mission { max-width: 520px; margin: 6px auto 0; padding: 6px 10px; border-radius: 8px; background: rgba(255,215,0,.14); border: 1px dashed var(--gold); font-size: 14px; text-align: center; }
 .mission small { opacity: .75; }
+
+/* avvisi a tutto schermo, come sul tabellone */
+#banner { position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top)); transform: translateX(-50%) translateY(-130%); width: min(92vw, 420px); background: linear-gradient(160deg, #1e3a5f, #15283f); color: #fff; border-radius: 20px; padding: 14px 18px 16px; text-align: center; z-index: 60; box-shadow: 0 10px 34px rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.18); opacity: 0; transition: transform .35s cubic-bezier(.2,1.3,.4,1), opacity .25s; }
+#banner.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+#banner.bad { background: linear-gradient(160deg, #8f2424, #5e1414); }
+#banner.good { background: linear-gradient(160deg, #1f7a4c, #134d31); }
+#banner.big { background: linear-gradient(160deg, #6a3fb0, #3a2368); border-color: #ffd24d; }
+#banner .bi { font-size: 40px; line-height: 1.1; }
+#banner .bt { font-size: 19px; font-weight: 800; margin-top: 2px; }
+#banner .ba { font-size: 34px; font-weight: 900; color: #ffd24d; margin: 2px 0; }
+#banner .bx { font-size: 15px; opacity: .95; margin-top: 4px; line-height: 1.3; }

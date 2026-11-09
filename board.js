@@ -578,6 +578,8 @@
     if (S.status === 'playing' && S.late) { $('#subtitle').textContent = '🔥 FASE FINALE: tasse doppie, niente dado matto'; $('#subtitle').style.color = '#ff8a8a'; } else $('#subtitle').style.color = '';
     if (!(S.status === 'playing' && S.late) && S.status === 'playing' && S.endsAt) $('#subtitle').innerHTML = `⏰ <b class="cd" data-end="${S.endsAt}">${fmtLeft(S.endsAt - Date.now())}</b> alla fine${S.settings.maxRounds ? ` · giro ${Math.min(S.round + 1, S.settings.maxRounds)} di ${S.settings.maxRounds}` : ''}`;
     else if (!(S.status === 'playing' && S.late)) $('#subtitle').textContent = S.status === 'playing' && S.settings.maxRounds ? `giro ${Math.min(S.round + 1, S.settings.maxRounds)} di ${S.settings.maxRounds}` : 'il gioco delle serate';
+    const heatT = S.status === 'playing' && D.HEAT[S.heat || 2] ? ` · ${D.HEAT[S.heat || 2].icon} ${D.HEAT[S.heat || 2].name}` : '';
+    if (S.status === 'playing' && !S.late) $('#subtitle').innerHTML += heatT;
     const eb = $('#eventBar');
     if (S.status === 'playing' && S.event) {
       eb.innerHTML = `<span class="ev">${S.event.icon} <b>${S.event.title}</b> · ${S.event.text}</span>`;
@@ -603,7 +605,7 @@
           <div class="joinTxt">Oppure apri sul telefono:<br><b>${url.replace(/^https?:\/\//, '')}</b><div class="votehint">🗳️ Ognuna vota le regole dal telefono: vince la maggioranza</div></div></div>
         <div class="vgrid">${FEAT.map(tally).join('')}</div>
         <div class="chips grid2">
-          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}${chip(`🔨 Aste ${ARLAB(st.auctionRound)}`, 'data-set="auctionRound"')}${chip(`⏰ ${TLAB[st.timeLimit || 0]}`, 'data-set="timeLimit"')}${chip(`🗺️ ${st.boardSize === 40 ? 'Classico 40' : 'Lungo 60'}`, 'data-set="boardSize"')}${chip(`🏁 ${st.winWorth ? 'Vince chi arriva a ' + eur(st.winWorth) : 'Nessun traguardo'}`, 'data-set="winWorth"')}
+          ${chip(`💰 Via con ${eur(st.startCash)}`, 'data-set="startCash"')}${chip(T.label, 'data-set="theme"')}${chip(`⏱️ ${DUR[st.maxRounds]}`, 'data-set="maxRounds"')}${chip(`🔨 Aste ${ARLAB(st.auctionRound)}`, 'data-set="auctionRound"')}${chip(`⏰ ${TLAB[st.timeLimit || 0]}`, 'data-set="timeLimit"')}${chip(`🗺️ ${st.boardSize === 40 ? 'Classico 40' : 'Lungo 60'}`, 'data-set="boardSize"')}${chip(`${D.HEAT[st.mean || 2].icon} Cattiveria: ${D.HEAT[st.mean || 2].name}`, 'data-set="mean"')}${chip('📈 Sale col tempo' + (st.meanRise ? ' ✓' : ''), 'data-set="meanRise"')}${chip(`🏁 ${st.winWorth ? 'Vince chi arriva a ' + eur(st.winWorth) : 'Nessun traguardo'}`, 'data-set="winWorth"')}
         </div>
         ${persistWarn()}
         <div class="lobbyPlayers">${players || '<span style="opacity:.6;font-size:1.2em">Nessuna giocatrice ancora…</span>'}</div>
@@ -641,7 +643,7 @@
       const c = S.claim;
       html = `<div class="mainRow">${deedHTML(c.idx)}<div class="auctionBox"><div style="font-size:1.3em">🙋 Chi la vuole?</div><div class="big">${eur(c.price)}</div><div>${nameOf(c.from)} non la compra: prezzo di listino, a lei il 10%</div>${(c.claimed || []).length ? `<div style="margin-top:6px">🙋 La vogliono: <b>${c.claimed.map(nameOf).join(', ')}</b>${c.claimed.length > 1 ? ' → asta!' : ''}</div>` : '<div style="margin-top:6px">Se la vogliono in due, si fa l\'asta</div>'}</div></div>`;
     } else if (S.phase === 'dare' && S.dare) {
-      html = `<div class="auctionBox"><div style="font-size:1.4em">🎭 SFIDA!</div><div style="font-size:1.5em;font-weight:800;margin:6px 0">${nameOf(S.dare.pid)} ${S.dare.text}</div><div>Fatta: <b>+€100</b> · Rifiutata: <b>−€50</b></div></div>`;
+      html = `<div class="auctionBox"><div style="font-size:1.4em">${S.dare.lampo ? '⚡ SFIDA LAMPO!' : '🎭 SFIDA!'}</div><div style="font-size:1.5em;font-weight:800;margin:6px 0">${nameOf(S.dare.pid)} ${S.dare.text}</div><div>Fatta: <b>+€${S.dare.win || 100}</b> · Rifiutata: <b>−€${S.dare.lose || 50}</b></div></div>`;
     } else if (S.phase === 'choose' && S.choice) {
       html = S.choice.kind === 'tris'
         ? '<div class="auctionBox"><div class="big">✨ TRIS ✨</div><div>può volare in qualsiasi casella</div></div>'
@@ -811,6 +813,7 @@
       else if (k === 'maxRounds') { const o = [0, 20, 30, 50]; post('/api/board', { type: 'settings', maxRounds: o[(o.indexOf(S.settings.maxRounds) + 1) % o.length] }); }
       else if (k === 'auctionRound') { const o = [0, 4, 6, 10, 15]; post('/api/board', { type: 'settings', auctionRound: o[(o.indexOf(S.settings.auctionRound) + 1) % o.length] }); }
       else if (k === 'timeLimit') { const o = [0, 30, 45, 60, 90]; post('/api/board', { type: 'settings', timeLimit: o[(o.indexOf(S.settings.timeLimit || 0) + 1) % o.length] }); }
+      else if (k === 'mean') post('/api/board', { type: 'settings', mean: (S.settings.mean || 2) % 3 + 1 });
       else if (k === 'theme') post('/api/board', { type: 'settings', theme: THEME_KEYS[(THEME_KEYS.indexOf(S.settings.theme) + 1) % THEME_KEYS.length] });
       else post('/api/board', { type: 'settings', [k]: !S.settings[k] });
     }
@@ -848,6 +851,10 @@
   });
   $('#mSkip').addEventListener('click', async () => {
     const r = await post('/api/board', { type: 'forceNext' }); if (!r.ok) alert(r.error);
+    $('#menu').classList.add('hidden');
+  });
+  $('#mHeat').addEventListener('click', async () => {
+    const r = await post('/api/board', { type: 'heatUp' }); if (!r.ok) alert(r.error);
     $('#menu').classList.add('hidden');
   });
   $('#mClose').addEventListener('click', () => $('#menu').classList.add('hidden'));

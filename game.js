@@ -28,6 +28,37 @@ const BOUNTY_JAIL = 150;
 const DARE_WIN = 100;
 const DARE_LOSE = 50;
 const BAD_EVENTS = ['taxman', 'bankStrike', 'blackMarket'];
+// eventi cattivi extra: compaiono solo se la cattiveria è alta
+const BAD_BY_HEAT = { 1: BAD_EVENTS, 2: BAD_EVENTS.concat(['robinHood', 'rentUp', 'noBuild']), 3: BAD_EVENTS.concat(['robinHood', 'rentUp', 'noBuild', 'quake']) };
+const ALL_BAD = BAD_BY_HEAT[3];
+const HEAT_RISE_EVERY = 6; // ogni quanti giri sale la cattiveria
+const PACE_FLOW = new Set(['roll', 'buy', 'decline', 'endTurn', 'dareAnswer', 'busPick', 'warpTo', 'travel', 'payJail', 'useJailCard', 'offerSale', 'saleAccept', 'saleDecline', 'saleCancel']);
+const PACE_MS = { roll: 3200, endTurn: 1700, buy: 1500, decline: 1100, dareAnswer: 1500, busPick: 2600, warpTo: 2600, travel: 2200, offerSale: 800, saleAccept: 1500, saleDecline: 900, saleCancel: 700, payJail: 1000, useJailCard: 1000 };
+// sfide lampo: arrivano ogni tanto all'inizio del turno, anche senza pescare una carta
+const LAMPO = [
+  'dice una cosa bella a ciascuna delle altre giocatrici',
+  'imita una delle altre giocatrici e le altre devono indovinare chi è',
+  'racconta una figuraccia che non ha mai raccontato a nessuna',
+  'canta il ritornello di una canzone a scelta (senza vergogna!)',
+  'dice tre cose che ama della giocatrice alla sua sinistra',
+  'fa un complimento in rima alla giocatrice alla sua destra',
+  'mima un animale: chi lo indovina per prima riceve un applauso',
+  'dice tutti i nomi delle altre giocatrici al contrario, senza sbagliare',
+  'racconta il sogno più strano che ricorda',
+  'fa 10 secondi di ballo come se fosse al concerto della vita',
+  'dice una cosa che le altre non sanno di lei',
+  'racconta il ricordo più bello con una di voi',
+  'fa la voce da telegiornale e annuncia le ultime notizie del tabellone',
+  'sfida la giocatrice alla sua sinistra a chi resta seria più a lungo guardandosi negli occhi',
+  'sfida la giocatrice alla sua destra a una gara di braccio di ferro: vince chi ci riesce!',
+  'sfida chi vuole a una sfida di sguardi: chi ride per prima perde (lei deve resistere)',
+  'dice in 10 secondi 5 nomi di città che iniziano con la stessa lettera, scelta dalle altre',
+  'dice una parola e ogni altra giocatrice deve aggiungerne una per fare una storia',
+  'parla per 15 secondi senza dire mai "sì", "no" o "ma"',
+  'indovina in tre tentativi il numero (da 1 a 10) pensato dalla giocatrice alla sua destra',
+  'mima un film: le altre devono indovinarlo',
+  'fa il gesto più buffo che conosce, le altre votano se è abbastanza buffo',
+];
 // missioni segrete: ognuna ha un testo e un controllo
 const MISSIONS = {
   stations: { text: 'Possiedi 3 stazioni', check: (g, p) => g.owned(p.id).filter((i) => g.BOARD[i].type === 'station').length >= 3 },
@@ -43,11 +74,11 @@ const MAX_PLAYERS = 8;
 const MAX_ACES = 3;
 const SPEED_FACES = [1, 2, 3, 'J', 'J', 'B']; // Dado Matto: numeri, 2 Jolly, 1 Navetta
 const PRESETS = {
-  classic: { freeParking: false, auctions: true, speedDie: false, aces: false, events: false, cheat: false, missions: false, bounty: false, dares: false, freeBuy: false },
-  ultra: { freeParking: true, auctions: true, speedDie: true, aces: true, events: true, cheat: false, missions: true, bounty: true, dares: true, freeBuy: true },
+  classic: { mean: 1, meanRise: false, freeParking: false, auctions: true, speedDie: false, aces: false, events: false, cheat: false, missions: false, bounty: false, dares: false, freeBuy: false },
+  ultra: { mean: 2, meanRise: true, freeParking: true, auctions: true, speedDie: true, aces: true, events: true, cheat: false, missions: true, bounty: true, dares: true, freeBuy: true },
 };
 const FEATURES = ['speedDie', 'aces', 'events', 'missions', 'bounty', 'dares', 'cheat', 'freeParking', 'auctions', 'freeBuy']; // regole su cui si vota
-const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', maxRounds: 0, autoEnd: true, boardSize: 60, winWorth: 5000, timeLimit: 0, auctionRound: 6, ...PRESETS.ultra };
+const DEFAULT_SETTINGS = { startCash: 1500, showCash: false, theme: 'italia', maxRounds: 0, autoEnd: true, boardSize: 60, winWorth: 5000, timeLimit: 0, auctionRound: 6, mean: 2, meanRise: true, ...PRESETS.ultra };
 
 function shuffle(arr, rng) {
   const a = arr.slice();
@@ -72,6 +103,8 @@ class Game {
     this.players = [];
     this.setBoard(this.settings.boardSize);
     this.hostId = null;
+    this.heat = 2;           // cattiveria attuale 1-3
+    this.lastChallenge = -99;
     this.turnIdx = 0;
     this.phase = 'lobby'; // lobby | roll | buy | auction | action | debt | ended
     this.doubles = 0;
@@ -152,7 +185,7 @@ class Game {
   // ---------- persistenza ----------
   toJSON() {
     const o = {};
-    const skip = ['rng', 'BOARD', 'GROUPS', 'STATIONS', 'UTILS', 'N', 'cols', 'rows', 'jailIdx', 'size'];
+    const skip = ['rng', 'pacing', 'paceUntil', 'BOARD', 'GROUPS', 'STATIONS', 'UTILS', 'N', 'cols', 'rows', 'jailIdx', 'size'];
     for (const k of Object.keys(this)) if (!skip.includes(k)) o[k] = this[k];
     return o;
   }
@@ -161,6 +194,8 @@ class Game {
     Object.assign(g, obj);
     g.settings = { ...DEFAULT_SETTINGS, boardSize: 40, ...(obj.settings || {}) };
     g.setBoard(g.settings.boardSize, true);
+    if (!g.heat) g.heat = g.settings.mean || 2;
+    if (g.lastChallenge === undefined) g.lastChallenge = -99;
     if (!g.decks.imprevisto) g.decks.imprevisto = shuffle(CARDS.imprevisto.map((_, i) => i), g.rng);
     for (const p of g.players) {
       if (!p.aces) p.aces = [];
@@ -260,6 +295,12 @@ class Game {
       this.settings.theme = s.theme;
     }
     for (const k of ['freeParking', 'showCash', 'auctions', 'speedDie', 'aces', 'events', 'cheat', 'missions', 'bounty', 'dares', 'freeBuy', 'autoEnd']) if (s[k] !== undefined) this.settings[k] = !!s[k];
+    if (s.mean !== undefined) {
+      const v = Number(s.mean);
+      if (![1, 2, 3].includes(v)) fail('Livello non valido.');
+      this.settings.mean = v;
+    }
+    if (s.meanRise !== undefined) this.settings.meanRise = !!s.meanRise;
     if (s.winWorth !== undefined) {
       const v = Number(s.winWorth);
       if (![0, 3000, 5000, 8000].includes(v)) fail('Traguardo non valido.');
@@ -330,6 +371,8 @@ class Game {
       this.addLog('banker', `🏦 ${b.emoji} ${b.name} fa il banchiere`);
     }
     this.startedAt = Date.now();
+    this.heat = this.settings.mean || 2;
+    this.lastChallenge = -99;
     this.dare = null; this.bountyId = null; this.winners = [];
     const np = this.players.length;
     this.settings.teams = false; this.settings.banker = false; this.bankerId = null;
@@ -668,6 +711,10 @@ class Game {
   }
 
   rentFor(idx, opts) {
+    const r = this.rentBase(idx, opts);
+    return this.event && this.event.key === 'rentUp' ? Math.round((r * 1.5) / 10) * 10 : r;
+  }
+  rentBase(idx, opts) {
     const sq = this.BOARD[idx], pr = this.props[idx];
     const ev = this.event ? this.event.key : null;
     if (ev === 'truce') return 0;
@@ -858,7 +905,7 @@ class Game {
     switch (card.fx) {
       case 'dare':
         if (noDare) { this.bankPay(p, 40, 'carta'); break; }
-        this.dare = { seq: ++this.dareSeq, pid: p.id, text: card.dare };
+        this.dare = { seq: ++this.dareSeq, pid: p.id, text: card.dare, win: DARE_WIN, lose: DARE_LOSE };
         this.phase = 'dare';
         return;
       case 'collect':
@@ -1059,6 +1106,7 @@ class Game {
         return;
       }
       if (c.type === 'endTurn') { this.nextTurn(); return; }
+      if (c.type === 'toRoll') { this.phase = 'roll'; return; }
       if (c.type === 'jolly') {
         const p = this.cur;
         if (!p.inJail && !p.bankrupt) {
@@ -1112,6 +1160,7 @@ class Game {
     this.turnCount++;
     this.roundTurns++;
     if (this.roundTurns >= this.alive().length) { this.roundTurns = 0; this.newRound(); }
+    if (this.status === 'playing') this.maybeChallenge();
   }
 
   // la partita finisce quando qualcuna arriva al traguardo (soldi + proprietà + edifici)
@@ -1203,15 +1252,41 @@ class Game {
 
   dareAnswer(p, done) {
     this.needTurn(p, 'dare');
+    const d = this.dare || {};
+    const win = d.win || DARE_WIN, lose = d.lose || DARE_LOSE;
     this.dare = null;
     if (done) {
-      this.bankPay(p, DARE_WIN, 'sfida');
-      this.addLog('dare', `🎭 ${p.name} ha fatto la sfida: +${eur(DARE_WIN)}`);
+      this.bankPay(p, win, 'sfida');
+      this.addLog('dare', `🎭 ${p.name} ha fatto la sfida: +${eur(win)}`);
     } else {
-      this.addLog('dare', `🎭 ${p.name} rifiuta la sfida: paga ${eur(DARE_LOSE)}`);
-      this.addDebt({ pid: p.id, amount: DARE_LOSE, creditor: this.settings.freeParking ? 'pot' : 'bank', reason: 'sfida rifiutata', kind: 'tax', fixed: true });
+      this.addLog('dare', `🎭 ${p.name} rifiuta la sfida: paga ${eur(lose)}`);
+      this.addDebt({ pid: p.id, amount: lose, creditor: this.settings.freeParking ? 'pot' : 'bank', reason: 'sfida rifiutata', kind: 'tax', fixed: true });
     }
+    if (d.lampo) this.cont = { type: 'toRoll' }; // dopo la sfida lampo si tira i dadi come al solito
     this.proceed();
+  }
+
+  // ogni tanto, all'inizio del turno, arriva una sfida anche senza pescare una carta
+  maybeChallenge() {
+    if (!this.settings.dares || this.status !== 'playing' || this.phase !== 'roll') return;
+    const p = this.cur;
+    const h = this.heat || 2;
+    if (!p || p.bankrupt || p.inJail || this.turnCount < this.alive().length + 1) return;
+    if (this.turnCount - this.lastChallenge < [5, 4, 3][h - 1]) return;
+    if (this.rng() > [0.35, 0.5, 0.65][h - 1]) return;
+    this.lastChallenge = this.turnCount;
+    const text = LAMPO[Math.floor(this.rng() * LAMPO.length)];
+    const win = [100, 150, 200][h - 1], lose = [50, 75, 100][h - 1];
+    this.dare = { seq: ++this.dareSeq, pid: p.id, text, win, lose, lampo: true };
+    this.phase = 'dare';
+    this.notify('⚡', 'Sfida lampo!', `${p.name} ${text}. Fatta: +${eur(win)} · Rifiutata: −${eur(lose)}`, 'info', p.id);
+  }
+
+  heatUp(auto) {
+    if ((this.heat || 2) >= 3) fail('La cattiveria è già al massimo!');
+    this.heat = (this.heat || 2) + 1;
+    const H = DATA.HEAT[this.heat];
+    this.notify('🔥', 'Si scalda!', `${auto ? 'Il tempo passa e la partita si fa più cattiva' : 'Si alza la cattiveria'}: livello ${this.heat} · ${H.name} ${H.icon}`, 'bad', null);
   }
 
   newRound() {
@@ -1222,16 +1297,19 @@ class Game {
       this.finish(null);
       return;
     }
+    if (this.settings.meanRise && (this.heat || 2) < 3 && this.round % HEAT_RISE_EVERY === 0) this.heatUp(true);
     if (!this.settings.events) return;
-    // all'inizio gli eventi sono rari e gentili; i cattivi arrivano solo nella fase finale
+    // la cattiveria decide quanti eventi arrivano e quanti sono cattivi
+    const h = this.heat || 2;
     const late = this.isLate();
-    if (this.rng() > (late ? 0.7 : 0.3 + 0.2 * this.progress())) { this.event = null; return; }
-    // gli eventi cattivi diventano sempre più probabili man mano che le proprietà si comprano
     const pr = this.progress();
-    const badChance = late ? 0.6 : Math.max(0, (pr - 0.5) / 0.5) * 0.4;
+    const evChance = h === 1 ? (late ? 0.7 : 0.3 + 0.2 * pr) : h === 2 ? (late ? 0.85 : 0.55 + 0.2 * pr) : 0.95;
+    const badChance = h === 1 ? (late ? 0.6 : Math.max(0, (pr - 0.5) / 0.5) * 0.4) : h === 2 ? (late ? 0.65 : 0.2 + 0.3 * pr) : (late ? 0.75 : 0.4 + 0.2 * pr);
+    if (this.rng() > evChance) { this.event = null; return; }
     const allowBad = this.rng() < badChance;
-    let keys = Object.keys(EVENTS).filter((k) => !BAD_EVENTS.includes(k));
-    if (allowBad) keys = BAD_EVENTS.slice();
+    const pool = BAD_BY_HEAT[h];
+    let keys = Object.keys(EVENTS).filter((k) => !ALL_BAD.includes(k));
+    if (allowBad) keys = pool.slice();
     let key = keys[Math.floor(this.rng() * keys.length)];
     if (this.event && key === this.event.key) key = keys[(keys.indexOf(key) + 1) % keys.length];
     const ev = { key, ...EVENTS[key] };
@@ -1244,6 +1322,8 @@ class Game {
     this.event = ev;
     this.addLog('event', `${ev.icon} ${ev.title}: ${ev.text}`);
     if (key === 'bonus') for (const q of this.alive()) q.cash += 50;
+    if (key === 'robinHood') this.robinHood();
+    if (key === 'quake') this.quake();
     if (key === 'taxman') {
       for (const q of this.alive()) {
         const amt = Math.min(q.cash, Math.round((q.cash * 0.03) / 10) * 10);
@@ -1253,6 +1333,28 @@ class Game {
         this.addLog('tax', `🧾 ${q.name} paga ${eur(amt)} al controllo fiscale`);
       }
     }
+  }
+
+  // il più ricco regala soldi alla più povera
+  robinHood() {
+    const al = this.alive().slice().sort((a, b) => this.netWorth(b) - this.netWorth(a));
+    if (al.length < 2) return;
+    const rich = al[0], poor = al[al.length - 1];
+    if (rich.id === poor.id || this.netWorth(rich) === this.netWorth(poor)) { this.addLog('event', '🏹 Robin Hood non trova nessuno da derubare'); return; }
+    const amt = Math.min(rich.cash, 100 * (this.heat || 2));
+    if (amt <= 0) return;
+    rich.cash -= amt; poor.cash += amt;
+    this.addLog('pay', `🏹 ${rich.name} regala ${eur(amt)} a ${poor.name}`);
+    this.notify('🏹', 'Robin Hood!', `${rich.name} (la più ricca) regala ${eur(amt)} a ${poor.name}`, 'bad', rich.id);
+  }
+  // il terremoto abbatte una casa a caso
+  quake() {
+    const cand = Object.keys(this.props).map(Number).filter((i) => this.props[i].owner && this.props[i].houses >= 1 && this.props[i].houses <= 4);
+    if (!cand.length) { this.addLog('event', '🏚️ Il terremoto non trova case da abbattere'); return; }
+    const i = cand[Math.floor(this.rng() * cand.length)];
+    this.props[i].houses -= 1;
+    const o = this.player(this.props[i].owner);
+    this.notify('🏚️', 'Terremoto!', `Crolla una casa a ${this.nm(i)}: la perde ${o ? o.name : 'qualcuna'}`, 'bad', o ? o.id : null);
   }
 
   // ---------- acquisto e asta ----------
@@ -1461,6 +1563,7 @@ class Game {
     const sq = this.BOARD[idx], pr = this.props[idx];
     if (!sq || sq.type !== 'street') return 'Qui non si può costruire.';
     if (pr.owner !== p.id) return 'Non è tua.';
+    if (this.event && this.event.key === 'noBuild') return 'Sciopero dei muratori: in questo giro non si costruisce.';
     if (!this.ownsGroup(p.id, sq.group)) return 'Ti serve tutto il colore.';
     const grp = this.GROUPS[sq.group];
     if (grp.some((i) => this.props[i].mortgaged)) return 'C\'è una proprietà ipotecata nel gruppo.';
@@ -1723,10 +1826,31 @@ class Game {
   }
 
   // ---------- punto di ingresso delle azioni dei giocatori ----------
+  // freno: i tasti del turno non si possono premere a raffica (il tabellone deve fare in tempo a mostrare tutto)
+  paceCheck(pid, a) {
+    if (!this.pacing || this.status !== 'playing' || !a) return null;
+    const now = Date.now();
+    if (PACE_FLOW.has(a.type) && now < (this.paceUntil || 0)) return '⏳ Piano piano… il tabellone sta ancora mostrando cosa è successo.';
+    if (a.type === 'claimTake' || a.type === 'claimPass') {
+      const p = this.player(pid);
+      if (p && now < (p.paceAt || 0)) return '⏳ Un attimo…';
+    }
+    return null;
+  }
+  paceMark(pid, a) {
+    if (!this.pacing || !a) return;
+    const now = Date.now();
+    if (PACE_FLOW.has(a.type)) this.paceUntil = now + (PACE_MS[a.type] || 900);
+    if (a.type === 'claimTake' || a.type === 'claimPass') { const p = this.player(pid); if (p) p.paceAt = now + 700; }
+  }
+
   act(pid, a) {
+    const err = this.paceCheck(pid, a);
+    if (err) return { ok: false, error: err, soft: true };
     const before = new Map(this.players.map((q) => [q.id, q.cash]));
     const seq0 = this.logSeq;
     const r = this._act(pid, a);
+    if (r && r.ok) this.paceMark(pid, a);
     if (!(a && a.type === 'cheat')) this.trackFx(before, seq0); // il furbetto non si deve vedere sul tabellone
     return r;
   }
@@ -1792,6 +1916,7 @@ class Game {
         case 'cheat': this.doCheat(p); break;
         case 'accuse': this.accuse(p); break;
         case 'hold': this.needTurn(p); this.hold = true; break;
+        case 'heatUp': this.heatUp(false); break;
         case 'payBanker': this.payBanker(p, Number(a.id), Number(a.pct)); break;
         case 'accuseBanker': this.accuseBanker(p); break;
         default: fail('Azione sconosciuta.');
@@ -1822,6 +1947,7 @@ class Game {
         case 'endgame': this.endGameNow(); break;
         case 'endAuction': this.endAuctionNow(); break;
         case 'forceNext': this.forceNext(); break;
+        case 'heatUp': this.heatUp(false); break;
         case 'dropPlayer': this.kickPlayerNow(a.id); break;
         case 'kick': {
           const p = this.player(a.id);
@@ -1899,7 +2025,7 @@ class Game {
       canAccuseBanker: !!(s.banker && this.banker() && me && !me.bankrupt && me.id !== this.bankerId && this.accusedB[me.id] !== this.round),
       votes: this.status === 'lobby' ? this.tally() : null,
       myVotes: me ? me.votes : null,
-      event: this.event, round: this.round,
+      event: this.event, round: this.round, heat: this.heat || 2,
       aces: me ? me.aces : [],
       fx: this.fx.slice(-12),
       cheat: s.cheat && this.status === 'playing' && me ? {

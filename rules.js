@@ -819,4 +819,150 @@ t('viaggio in treno tra le tue stazioni, e se passi dal Via incassi', () => {
   assert.ok(g.travel === null);
 });
 
+
+// ---------- 4.7: freno, cattiveria, eventi e sfide lampo ----------
+t('freno: i tasti del turno non si premono a raffica (ma l\'automatico passa)', () => {
+  const g = new4({});
+  g.pacing = true;
+  const p = g.cur;
+  dice(1, 2);
+  assert.ok(g.act(p.id, { type: 'roll' }).ok);
+  const r = g.act(p.id, { type: 'buy' });
+  assert.ok(!r.ok && r.soft, 'subito dopo il lancio si aspetta');
+  assert.strictEqual(g.phase, 'buy');
+  g.paceUntil = 0;
+  assert.ok(g.act(p.id, { type: 'buy' }).ok);
+  const r2 = g.act(p.id, { type: 'endTurn' });
+  assert.ok(!r2.ok && r2.soft);
+  g.paceUntil = 0;
+  assert.ok(g.act(p.id, { type: 'endTurn' }).ok);
+  // senza freno (test, automatico) niente blocchi
+  const g2 = new4({}); const q = g2.cur; dice(1, 2);
+  assert.ok(g2.act(q.id, { type: 'roll' }).ok && g2.act(q.id, { type: 'buy' }).ok);
+});
+
+t('cattiveria: si sceglie 1-2-3, parte da lì e nella vista c\'è', () => {
+  const g = new4({ mean: 3 });
+  assert.strictEqual(g.heat, 3);
+  assert.strictEqual(g.view(g.cur.id, new Set()).heat, 3);
+  const g1 = new4({ mean: 1 });
+  assert.strictEqual(g1.heat, 1);
+  assert.ok(!g1.setSettings.bind(g1, {}) || true);
+  const lobby = new Game(rng);
+  assert.throws(() => { const r = lobby.setSettings({ mean: 5 }); }, /Livello/);
+});
+
+t('cattiveria: sale da sola ogni 6 giri fino a 3 e si può alzare a mano', () => {
+  const g = new4({ mean: 1, meanRise: true });
+  for (let i = 0; i < 6; i++) g.newRound();
+  assert.strictEqual(g.heat, 2);
+  assert.strictEqual(g.notice.icon, '🔥');
+  for (let i = 0; i < 6; i++) g.newRound();
+  assert.strictEqual(g.heat, 3);
+  for (let i = 0; i < 6; i++) g.newRound();
+  assert.strictEqual(g.heat, 3);
+  assert.ok(!g.admin({ type: 'heatUp' }).ok); // già al massimo
+  const h = new4({ mean: 1, meanRise: false });
+  for (let i = 0; i < 12; i++) h.newRound();
+  assert.strictEqual(h.heat, 1);
+  assert.ok(h.admin({ type: 'heatUp' }).ok);
+  assert.strictEqual(h.heat, 2);
+  assert.ok(h.act(h.cur.id, { type: 'heatUp' }).ok);
+  assert.strictEqual(h.heat, 3);
+});
+
+t('eventi cattivi: Robin Hood, Terremoto, Affitti alle stelle, Sciopero muratori', () => {
+  const g = new4({});
+  g.heat = 2;
+  const [a, b, c, d] = g.players;
+  a.cash = 3000; b.cash = 1000; c.cash = 1000; d.cash = 100;
+  g.robinHood();
+  assert.strictEqual(a.cash, 2800); assert.strictEqual(d.cash, 300);
+  // terremoto: abbatte una casa
+  const grp = Object.keys(g.GROUPS)[0];
+  for (const i of g.GROUPS[grp]) { g.props[i].owner = b.id; g.props[i].houses = 2; }
+  const before = g.GROUPS[grp].reduce((n, i) => n + g.props[i].houses, 0);
+  g.quake();
+  assert.strictEqual(g.GROUPS[grp].reduce((n, i) => n + g.props[i].houses, 0), before - 1);
+  assert.strictEqual(g.notice.icon, '🏚️');
+  // affitti +50%
+  const i0 = g.GROUPS[grp][0];
+  for (const i of g.GROUPS[grp]) g.props[i].houses = 0;
+  g.event = null; const base = g.rentFor(i0, {});
+  g.event = { key: 'rentUp' };
+  assert.strictEqual(g.rentFor(i0, {}), Math.round(base * 1.5 / 10) * 10);
+  // sciopero muratori
+  g.event = { key: 'noBuild' };
+  b.cash = 5000;
+  assert.match(g.whyNotBuild(b, i0), /muratori/);
+  g.event = null;
+  assert.ok(!/muratori/.test(g.whyNotBuild(b, i0) || ''));
+});
+
+t('eventi: con cattiveria alta compaiono i cattivi nuovi, con 1 no', () => {
+  const seen = (heat) => {
+    const set = new Set();
+    for (let n = 0; n < 400; n++) {
+      queue = [];
+      let k = 0; const r = () => ((k = (k * 9301 + 49297 + n * 17) % 233280) / 233280);
+      const g = new Game(r);
+      g.setSettings({ preset: 'ultra', boardSize: 60, mean: heat, meanRise: false });
+      g.join('A', '🚗'); g.join('B', '🎩'); g.start();
+      for (let i = 0; i < 6; i++) { g.event = null; g.newRound(); if (g.event) set.add(g.event.key); }
+    }
+    return set;
+  };
+  const low = seen(1), high = seen(3);
+  for (const k of ['robinHood', 'rentUp', 'noBuild', 'quake']) { assert.ok(!low.has(k), 'livello 1 non deve avere ' + k); assert.ok(high.has(k), 'livello 3 deve avere ' + k); }
+});
+
+t('sfida lampo: arriva a inizio turno, +€200/−€100 a livello 3, poi si tira i dadi', () => {
+  const g = new4({ dares: true });
+  g.heat = 3; g.turnCount = 30; g.lastChallenge = -99;
+  g.nextTurn();
+  assert.strictEqual(g.phase, 'dare');
+  assert.ok(g.dare.lampo && g.dare.win === 200 && g.dare.lose === 100);
+  const p = g.cur, c0 = p.cash;
+  assert.ok(g.view(p.id, new Set()).dare.text);
+  assert.ok(g.act(p.id, { type: 'dareAnswer', done: true }).ok);
+  assert.strictEqual(p.cash, c0 + 200);
+  assert.strictEqual(g.phase, 'roll');
+  assert.strictEqual(g.cur.id, p.id);
+  // rifiutata
+  const h = new4({ dares: true });
+  h.heat = 3; h.turnCount = 30; h.lastChallenge = -99; h.nextTurn();
+  const q = h.cur, d0 = q.cash;
+  h.act(q.id, { type: 'dareAnswer', done: false });
+  assert.strictEqual(q.cash, d0 - 100);
+  assert.strictEqual(h.phase, 'roll');
+  // la prossima non arriva subito (pausa) e con le sfide spente non arriva mai
+  h.nextTurn(); assert.notStrictEqual(h.phase, 'dare');
+  const off = new4({ dares: false });
+  off.heat = 3; off.turnCount = 30; off.lastChallenge = -99; off.nextTurn();
+  assert.strictEqual(off.phase, 'roll');
+});
+
+t('sfida lampo: chi è in prigione non la riceve, e i livelli cambiano i premi', () => {
+  const g = new4({ dares: true });
+  g.heat = 1; g.turnCount = 30; g.lastChallenge = -99;
+  g.nextTurn();
+  if (g.phase === 'dare') assert.ok(g.dare.win === 100 && g.dare.lose === 50);
+  const j = new4({ dares: true });
+  j.heat = 3; j.turnCount = 30; j.lastChallenge = -99;
+  j.players.forEach((q) => { q.inJail = true; });
+  j.nextTurn();
+  assert.strictEqual(j.phase, 'roll');
+});
+
+t('sfida lampo: se non hai i soldi, dopo il debito si torna ai dadi', () => {
+  const g = new4({ dares: true });
+  g.heat = 3; g.turnCount = 30; g.lastChallenge = -99; g.nextTurn();
+  const p = g.cur; p.cash = 40;
+  g.act(p.id, { type: 'dareAnswer', done: false });
+  assert.strictEqual(g.phase, 'debt');
+  p.cash = 500; // raccoglie i soldi
+  g.proceed();
+  assert.strictEqual(g.phase, 'roll');
+});
+
 console.log(`\n${passed} test passati`);

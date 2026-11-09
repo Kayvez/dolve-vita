@@ -127,6 +127,7 @@ function scheduleAuto() {
     autoTimer = null;
     const cur = game.cur;
     if (game.status === 'playing' && game.phase === 'action' && !game.hold && cur && `${game.turnCount}:${game.logSeq}:${game.phase}` === autoKey) {
+      game.paceUntil = 0;
       game.act(cur.id, { type: 'endTurn' });
       broadcast();
     }
@@ -159,7 +160,15 @@ setInterval(() => {
     try { g.addLog('skip', `📵 ${g.cur.name} non è collegata: il turno passa`); g.forceNext(); broadcast(); } catch (e) { console.log('Salto turno automatico fallito:', e.message); }
   }
 }, 5000);
+// più azioni ravvicinate vengono raggruppate in un solo invio: meno lavoro per l'iPad e per i telefoni
+let bcTimer = null, bcLast = 0;
 function broadcast() {
+  const now = Date.now();
+  if (now - bcLast < 120) { if (!bcTimer) bcTimer = setTimeout(() => { bcTimer = null; doBroadcast(); }, 120 - (now - bcLast)); return; }
+  doBroadcast();
+}
+function doBroadcast() {
+  bcLast = Date.now();
   scheduleAuto();
   scheduleClaim();
   const connected = connectedIds();
@@ -228,8 +237,9 @@ async function handleApi(req, res, url) {
   if (route === '/api/act') {
     const p = game.byToken(body.token);
     if (!p) return json(res, 200, { ok: false, error: 'Sessione scaduta: ricarica la pagina.' });
+    game.pacing = true; // freno anti-raffica sui tasti del turno
     const r = game.act(p.id, body);
-    broadcast();
+    if (!r.soft) broadcast();
     return json(res, 200, r);
   }
   if (route === '/api/board') {

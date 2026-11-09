@@ -46,10 +46,18 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.className = ''; }, bad ? 5000 : 3600);
   }
+  // i tasti del turno non si premono a raffica: dopo un tocco si aspetta un attimo
+  const FLOW = new Set(['roll', 'buy', 'decline', 'endTurn', 'dareAnswer', 'busPick', 'warpTo', 'travel', 'payJail', 'useJailCard', 'offerSale', 'saleAccept', 'saleDecline', 'claimTake', 'claimPass']);
+  let flowLock = 0;
   async function act(a) {
+    if (FLOW.has(a.type)) {
+      if (Date.now() < flowLock) return { ok: false, soft: true };
+      flowLock = Date.now() + 900;
+    }
     const r = await post('/api/act', Object.assign({ token }, a));
     if (!r.ok) {
-      toast(r.error || 'Errore', true);
+      if (r.soft) flowLock = Date.now() + 1200;
+      if (r.error) toast(r.error, !r.soft);
       if (/Sessione scaduta/.test(r.error || '')) logout();
     }
     return r;
@@ -88,8 +96,9 @@
   const textOn = (c) => (['#f4d93b', '#8fd3f4'].includes(c) ? '#222' : '#fff');
   function rentNow(i) {
     const sq = BOARD[i], pr = S.props[i];
-    if (sq.type === 'street') return pr.houses >= 6 ? eur(Math.round(sq.rent[5] * 1.6 / 10) * 10) : pr.houses > 0 ? eur(sq.rent[pr.houses]) : eur(sq.rent[0] * (ownsAll(pr.owner, sq.group) ? 2 : 1));
-    if (sq.type === 'station') return eur(25 * Math.pow(2, STATIONS.filter((j) => S.props[j].owner === pr.owner).length - 1));
+    const up = (n) => (S.event && S.event.key === 'rentUp' ? Math.round(n * 1.5 / 10) * 10 : n);
+    if (sq.type === 'street') return pr.houses >= 6 ? eur(up(Math.round(sq.rent[5] * 1.6 / 10) * 10)) : pr.houses > 0 ? eur(up(sq.rent[pr.houses])) : eur(up(sq.rent[0] * (ownsAll(pr.owner, sq.group) ? 2 : 1)));
+    if (sq.type === 'station') return eur(up(25 * Math.pow(2, STATIONS.filter((j) => S.props[j].owner === pr.owner).length - 1)));
     return '4× / 10× dadi';
   }
   const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
@@ -176,19 +185,74 @@
     logToasts();
     render();
   }
+  // ---------- avvisi a tutto schermo (come sul tabellone) ----------
+  const bQ = [];
+  let bBusy = false, bEl = null, lastNoticeSeq = null, lastCardSeq = null, lastEventSeq = null, lastDiceSeq = null;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  function banner(icon, title, text, cls, amount) {
+    if (bQ.length >= 4) { const i = bQ.findIndex((x) => x.cls !== 'big'); bQ.splice(i >= 0 ? i : 0, 1); } // se ce ne sono troppi, salta i meno importanti
+    bQ.push({ icon, title, text, cls, amount });
+    if (!bBusy) runBanner();
+  }
+  async function runBanner() {
+    bBusy = true;
+    if (!bEl) { bEl = document.createElement('div'); bEl.id = 'banner'; document.body.appendChild(bEl); bEl.addEventListener('click', () => { bEl.className = ''; }); }
+    while (bQ.length) {
+      const a = bQ.shift();
+      bEl.className = 'show ' + (a.cls || '');
+      bEl.innerHTML = `<div class="bi">${a.icon}</div><div class="bt">${esc(a.title)}</div>${a.amount ? `<div class="ba">${esc(a.amount)}</div>` : ''}<div class="bx">${esc(a.text || '')}</div>`;
+      if (a.cls === 'bad') psfx('lose'); else if (a.cls === 'good') psfx('gain'); else psfx('alert');
+      await wait(bQ.length > 1 ? 2100 : a.cls === 'big' ? 3800 : 3000);
+      bEl.className = '';
+      await wait(350);
+    }
+    bBusy = false;
+  }
+  const euroIn = (t) => { const m = /€\s?(\d+)/.exec(t || ''); return m ? '€' + m[1] : ''; };
+  const plain = (t) => String(t || '').replace(/^[^\p{L}\p{N}€]+/u, '');
+  const DECKI = { fortuna: ['🍀', 'Fortuna'], sorpresa: ['🎁', 'Sorpresa'], imprevisto: ['⚠️', 'Imprevisto'] };
+  function announceFrom(fresh) {
+    const me0 = me();
+    const mine = (t) => !!(me0 && t.includes(me0.name));
+    for (const l of fresh) {
+      const t = l.text;
+      if (l.kind === 'rent') { banner('💸', mine(t) ? 'Devi pagare un affitto' : 'Affitto', plain(t), 'bad', euroIn(t)); if (mine(t)) buzz([120, 60, 120]); }
+      else if (l.kind === 'tax') { banner('🧾', 'Tassa / multa', plain(t), 'bad', euroIn(t)); if (mine(t)) buzz([120, 60, 120]); }
+      else if (l.kind === 'go') banner(/d'oro/.test(t) ? '🎰' : '➡️', /d'oro/.test(t) ? 'Partenza d\'oro: doppio!' : /piatto/.test(t) ? 'Piatto dell\'aperitivo!' : 'Partenza!', plain(t), /d'oro/.test(t) ? 'big' : 'good', euroIn(t));
+      else if (l.kind === 'pay' && /€/.test(t)) banner('💶', 'Pagamento', plain(t), 'bad', euroIn(t));
+      else if (l.kind === 'land' && /oggi niente affitto/.test(t)) banner('🚧', 'Niente affitto oggi!', plain(t), 'big');
+      else if (l.kind === 'mission') banner('🎯', 'Missione compiuta!', plain(t), 'big', euroIn(t));
+      else if (l.kind === 'dare') banner('🎭', /rifiuta/.test(t) ? 'Sfida rifiutata' : 'Sfida superata!', plain(t), /rifiuta/.test(t) ? 'bad' : 'good', euroIn(t));
+      else if (l.kind === 'sale') banner('🤝', 'Offerta diretta', plain(t), '', euroIn(t));
+      else if (l.kind === 'dice' && /TRIS/.test(t)) banner('✨', 'TRIS!', plain(t), 'big');
+      else if (l.kind === 'dice' && /navetta/.test(t)) banner('🚌', 'Navetta!', plain(t));
+      else if (l.kind === 'move' && /Jolly/.test(t)) banner('🃏', 'Jolly!', plain(t));
+      else if (l.kind === 'move' && /scambiano/.test(t)) banner('🔀', 'Si cambia posto!', plain(t));
+      else if (l.kind === 'ace') banner('🃏', 'Asso nella manica', plain(t), /scudo/i.test(t) ? 'good' : '');
+      else if (l.kind === 'cheat') banner('🕵️', 'Furbetti!', plain(t), 'big', euroIn(t));
+      else if (l.kind === 'jail' && /va in prigione|tre doppi/.test(t)) banner('🚔', 'In prigione!', plain(t), 'bad');
+      else if (l.kind === 'bankrupt') banner('💀', 'Fuori dal gioco', plain(t), 'bad');
+      else if (l.kind === 'build' && mine(t)) toast(t);
+    }
+  }
   function logToasts() {
     const last = S.log.length ? S.log[S.log.length - 1].id : 0;
-    if (lastLogSeen === null) { lastLogSeen = last; return; }
-    const fresh = S.log.filter((l) => l.id > lastLogSeen);
+    const first = lastLogSeen === null;
+    const fresh = first ? [] : S.log.filter((l) => l.id > lastLogSeen);
     lastLogSeen = last;
-    const me0 = me();
-    for (const l of fresh) {
-      if (['rent', 'tax', 'pay', 'go', 'jail', 'notice', 'build'].includes(l.kind) && (l.kind === 'notice' || (me0 && l.text.includes(me0.name)))) {
-        toast(l.text, ['rent', 'tax', 'pay', 'jail'].includes(l.kind) && me0 && l.text.includes(me0.name) && !/ritira|incassa/.test(l.text)); buzz([120, 60, 120]);
-      } else if (['event', 'ace', 'cheat'].includes(l.kind) || (l.kind === 'dice' && /TRIS|navetta/.test(l.text)) || (l.kind === 'move' && /Jolly|scambiano/.test(l.text))) {
-        toast(l.text); buzz(l.kind === 'cheat' && me0 && l.text.includes(me0.name) ? [200, 80, 200] : 40);
-      }
-    }
+    const rolled = lastDiceSeq !== null && S.dice.seq !== lastDiceSeq;
+    lastDiceSeq = S.dice.seq;
+    if (first) { lastNoticeSeq = S.notice ? S.notice.seq : 0; lastCardSeq = S.card ? S.card.seq : 0; lastEventSeq = S.event ? S.event.seq : 0; return; }
+    const lag = rolled ? 1900 : 250; // dopo un lancio aspetta che il tabellone abbia mostrato la mossa
+    const items = [];
+    // evento di città
+    if (S.event && S.event.seq !== lastEventSeq) { lastEventSeq = S.event.seq; const e = S.event; items.push(() => banner(e.icon, e.title, e.text, 'big')); }
+    // carta pescata
+    if (S.card && S.card.seq !== lastCardSeq) { lastCardSeq = S.card.seq; const c = S.card, who = P(c.pid), d = DECKI[c.deck] || ['🃏', 'Carta']; items.push(() => banner(d[0], `${d[1]}${who ? ' · ' + who.emoji + ' ' + who.name : ''}`, plain(c.text), 'big')); }
+    // avviso di casella speciale
+    if (S.notice && S.notice.seq !== lastNoticeSeq) { lastNoticeSeq = S.notice.seq; const n = S.notice; items.push(() => { banner(n.icon, n.title, n.text, n.tone === 'bad' ? 'bad' : n.tone === 'good' ? 'good' : 'big'); if (n.tone === 'bad') buzz([100, 50, 100]); }); }
+    const snap = fresh.filter((l) => !['event', 'card', 'notice'].includes(l.kind));
+    setTimeout(() => { snap.length && announceFrom(snap); items.forEach((f) => f()); }, lag);
   }
 
   // ---------- schermata di ingresso ----------
@@ -233,6 +297,7 @@
     return h;
   }
   setInterval(() => { document.querySelectorAll('.cd').forEach((el) => { el.textContent = fmtLeft(Number(el.dataset.end) - Date.now()); }); }, 1000);
+  const heatTxt = () => { const H = D.HEAT[S.heat || 2]; return S.status === 'playing' && H ? ` · ${H.icon} ${H.name}` : ''; };
   function headerHTML(m) {
     const cur = S.status === 'playing' ? P(S.turn) : null;
     let bar = '';
@@ -240,7 +305,7 @@
     if (cur) bar = S.turn === S.you ? `<div class="turnbar me">⭐ Tocca a te!${round}</div>` : `<div class="turnbar">Tocca a ${cur.emoji} ${esc(cur.name)}${round}</div>`;
     const d = delta && Date.now() < delta.until ? `<span class="delta ${delta.v > 0 ? 'up' : 'down'}">${delta.v > 0 ? '+' : '−'}${Math.abs(delta.v)}</span>` : '';
     return `<header><div class="hrow"><div class="av" style="--c:${m.color}">${m.emoji}</div>
-      <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : nm(m.pos)}${S.settings.winWorth && S.myWorth != null ? ' · 💎 ' + S.myWorth + '/' + S.settings.winWorth : ''}${S.late ? ' · 🔥 fase finale' : ''}</div></div>
+      <div><div class="hname">${esc(m.name)}</div><div class="hsub">${m.bankrupt ? 'fuori dal gioco' : m.inJail ? '🚔 in prigione' : nm(m.pos)}${S.settings.winWorth && S.myWorth != null ? ' · 💎 ' + S.myWorth + '/' + S.settings.winWorth : ''}${S.late ? ' · 🔥 fase finale' : ''}${heatTxt()}</div></div>
       <button class="hq" data-act="help">?</button>
       <div class="hbadges">${m.shield ? '🛡️' : ''}${m.x2 ? '✖️2' : ''}${m.skip ? '⏭️' : ''}</div>
       <div class="hcash">${m.cash !== null ? eur(m.cash) : ''}${d}</div></div>${bar}${extraBar(m)}</header>`;
@@ -387,9 +452,10 @@
 
     if (S.phase === 'dare' && S.dare) {
       const dp = P(S.dare.pid);
-      html += `<div class="card"><h3>🎭 Sfida!</h3><p class="bigtxt" style="font-size:20px">${dp.emoji} ${esc(dp.name)} ${esc(S.dare.text)}</p>`;
-      if (S.dare.pid === S.you) html += `<div class="row"><button class="btn green" data-act="dareYes">✅ Fatto +€100</button><button class="btn ghost" data-act="dareNo">🙈 Passo −€50</button></div>`;
-      else html += `<p class="muted" style="text-align:center">Guardate bene: se ${esc(dp.name)} lo fa davvero, prende €100!</p>`;
+      const dw = S.dare.win || 100, dl = S.dare.lose || 50;
+      html += `<div class="card"><h3>${S.dare.lampo ? '⚡ Sfida lampo!' : '🎭 Sfida!'}</h3><p class="bigtxt" style="font-size:20px">${dp.emoji} ${esc(dp.name)} ${esc(S.dare.text)}</p>`;
+      if (S.dare.pid === S.you) html += `<div class="row"><button class="btn green" data-act="dareYes">✅ Fatto +€${dw}</button><button class="btn ghost" data-act="dareNo">🙈 Passo −€${dl}</button></div>`;
+      else html += `<p class="muted" style="text-align:center">Guardate bene: se ${esc(dp.name)} lo fa davvero, prende €${dw}!</p>`;
       return html + '</div>' + logHTML(3);
     }
 
@@ -544,6 +610,7 @@
         <div class="hcash" style="font-size:20px;color:var(--ink)">${p.cash !== null ? eur(p.cash) : ''}</div></div>
         <div style="margin-top:6px;display:flex;gap:3px;flex-wrap:wrap">${pr.map((i) => `<span style="width:14px;height:14px;border-radius:3px;background:${colorOf(i)};opacity:${S.props[i].mortgaged ? .35 : 1};border:1px solid rgba(0,0,0,.3)"></span>`).join('')}</div></div>`;
     }).join('');
+if (S.status === 'playing') { const H = D.HEAT[S.heat || 2]; html = `<div class="card"><h3>${H.icon} Cattiveria: livello ${S.heat || 2} · ${H.name}</h3><p class="muted">${S.settings.meanRise ? 'Sale da sola ogni tanto. ' : ''}Più è alta, più arrivano eventi cattivi e sfide lampo.</p>${(S.heat || 2) < 3 ? '<button class="btn sm gold" data-act="heatUp">🔥 Alza la cattiveria</button>' : '<p class="muted">È già al massimo! 😈</p>'}</div>` + html; }
     if (S.status === 'playing' && !m.bankrupt) html += '<button class="btn ghost" data-act="resign" style="margin-top:6px">🏳️ Mi arrendo</button>';
     return html;
   }
@@ -583,6 +650,8 @@
         <button class="chip" data-act="set" data-k="winWorth">🏁 ${st.winWorth ? 'Traguardo ' + eur(st.winWorth) : 'Nessun traguardo'}</button>
         <button class="chip" data-act="set" data-k="boardSize">🗺️ Tabellone: ${st.boardSize === 40 ? 'classico 40' : 'lungo 60'}</button>
         <button class="chip" data-act="set" data-k="startCash">💰 Si parte con ${eur(st.startCash)}</button>
+        <button class="chip" data-act="set" data-k="mean">${D.HEAT[st.mean || 2].icon} Cattiveria: ${D.HEAT[st.mean || 2].name}</button>
+        <button class="chip ${st.meanRise ? 'on' : ''}" data-act="set" data-k="meanRise">📈 Sale col tempo</button>
         <button class="chip" data-act="set" data-k="theme">${esc((D.THEMES[st.theme] || D.THEMES.italia).label)}</button>
         <button class="chip" data-act="set" data-k="maxRounds">⏱️ Durata: ${DUR[st.maxRounds]}</button>
         <button class="chip" data-act="set" data-k="auctionRound">🔨 Aste: ${ARLAB(st.auctionRound)}</button>
@@ -590,7 +659,7 @@
         <button class="chip ${st.autoEnd ? 'on' : ''}" data-act="set" data-k="autoEnd">⏭️ Fine turno automatico</button>
         <button class="chip ${st.showCash && !st.cheat ? 'on' : ''}" data-act="set" data-k="showCash">👀 Soldi visibili a tutti</button></div>
         <button class="btn green ${S.players.length < 2 ? 'off' : ''}" data-act="start">Inizia la partita</button></div>`
-        : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone). Partita: ${(D.THEMES[st.theme] || D.THEMES.italia).label}, ${eur(st.startCash)}, durata ${DUR[st.maxRounds]}, tabellone ${st.boardSize === 40 ? 'classico' : 'lungo'}.</p></div>`}
+        : `<div class="card"><p class="muted">Aspetta che ${esc(P(S.hostId).name)} avvii la partita (o dal tabellone). Partita: ${(D.THEMES[st.theme] || D.THEMES.italia).label}, cattiveria ${D.HEAT[st.mean || 2].name.toLowerCase()}, ${eur(st.startCash)}, durata ${DUR[st.maxRounds]}, tabellone ${st.boardSize === 40 ? 'classico' : 'lungo'}.</p></div>`}
       <button class="btn ghost" data-act="help">❓ Come si gioca</button>
       <button class="btn ghost" data-act="leave">Esci</button></div>`;
   }
@@ -679,6 +748,7 @@
       case 'payBanker': await act({ type: 'payBanker', id: Number(d.id), pct: Number(d.pct) }); return;
       case 'accuseBanker': { const r = await act({ type: 'accuseBanker' }); return r; }
       case 'hold': await act({ type: 'hold' }); return;
+      case 'heatUp': await act({ type: 'heatUp' }); return;
       case 'snd': pSound = !pSound; try { localStorage.setItem('dv_psound', pSound ? '1' : '0'); } catch (e) { /* */ } if (pSound) { pEnsure(); psfx('gain'); } render(); return;
       case 'help': modal = 'help'; render(); return;
       case 'closeModal': { if (modal === 'intro' && S.gameId) { try { localStorage.setItem('dv_seen', S.gameId); } catch (e) { /* */ } } modal = null; render(); return; }
@@ -722,6 +792,7 @@
         else if (d.k === 'maxRounds') { const o = [0, 20, 30, 50]; await act({ type: 'settings', maxRounds: o[(o.indexOf(st.maxRounds) + 1) % o.length] }); }
         else if (d.k === 'auctionRound') { const o = [0, 4, 6, 10, 15]; await act({ type: 'settings', auctionRound: o[(o.indexOf(st.auctionRound) + 1) % o.length] }); }
         else if (d.k === 'timeLimit') { const o = [0, 30, 45, 60, 90]; await act({ type: 'settings', timeLimit: o[(o.indexOf(st.timeLimit || 0) + 1) % o.length] }); }
+        else if (d.k === 'mean') await act({ type: 'settings', mean: (st.mean || 2) % 3 + 1 });
         else if (d.k === 'theme') { const o = Object.keys(D.THEMES); await act({ type: 'settings', theme: o[(o.indexOf(st.theme) + 1) % o.length] }); }
         else await act({ type: 'settings', [d.k]: !st[d.k] });
         return;
