@@ -1272,8 +1272,8 @@ class Game {
     const p = this.cur;
     const h = this.heat || 2;
     if (!p || p.bankrupt || p.inJail || this.turnCount < this.alive().length + 1) return;
-    if (this.turnCount - this.lastChallenge < [5, 4, 3][h - 1]) return;
-    if (this.rng() > [0.35, 0.5, 0.65][h - 1]) return;
+    if (this.turnCount - this.lastChallenge < [10, 8, 6][h - 1]) return;
+    if (this.rng() > [0.25, 0.35, 0.5][h - 1]) return;
     this.lastChallenge = this.turnCount;
     const text = LAMPO[Math.floor(this.rng() * LAMPO.length)];
     const win = [100, 150, 200][h - 1], lose = [50, 75, 100][h - 1];

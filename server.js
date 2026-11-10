@@ -27,7 +27,8 @@ const MIME = {
 // sopravvive ai riavvii di Render. Servono due variabili d'ambiente: UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN.
 const REMOTE_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
 const REMOTE_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const REMOTE_KEY = 'dolcevita:state';
+// con più copie del gioco sullo stesso database, GAME_KEY dà a ognuna la sua chiave (se manca, si usa quella di sempre)
+const REMOTE_KEY = process.env.GAME_KEY ? 'dolcevita:' + String(process.env.GAME_KEY).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30) : 'dolcevita:state';
 const remoteOn = !!(REMOTE_URL && REMOTE_TOKEN);
 let lastSaveOk = null;
 
@@ -237,7 +238,6 @@ async function handleApi(req, res, url) {
   if (route === '/api/act') {
     const p = game.byToken(body.token);
     if (!p) return json(res, 200, { ok: false, error: 'Sessione scaduta: ricarica la pagina.' });
-    game.pacing = true; // freno anti-raffica sui tasti del turno
     const r = game.act(p.id, body);
     if (!r.soft) broadcast();
     return json(res, 200, r);

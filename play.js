@@ -52,12 +52,11 @@
   async function act(a) {
     if (FLOW.has(a.type)) {
       if (Date.now() < flowLock) return { ok: false, soft: true };
-      flowLock = Date.now() + 900;
+      flowLock = Date.now() + 250;
     }
     const r = await post('/api/act', Object.assign({ token }, a));
     if (!r.ok) {
-      if (r.soft) flowLock = Date.now() + 1200;
-      if (r.error) toast(r.error, !r.soft);
+            if (r.error) toast(r.error, !r.soft);
       if (/Sessione scaduta/.test(r.error || '')) logout();
     }
     return r;
@@ -243,7 +242,7 @@
     const rolled = lastDiceSeq !== null && S.dice.seq !== lastDiceSeq;
     lastDiceSeq = S.dice.seq;
     if (first) { lastNoticeSeq = S.notice ? S.notice.seq : 0; lastCardSeq = S.card ? S.card.seq : 0; lastEventSeq = S.event ? S.event.seq : 0; return; }
-    const lag = rolled ? 1900 : 250; // dopo un lancio aspetta che il tabellone abbia mostrato la mossa
+    const lag = rolled ? 1200 : 150; // dopo un lancio aspetta che il tabellone abbia mostrato la mossa
     const items = [];
     // evento di città
     if (S.event && S.event.seq !== lastEventSeq) { lastEventSeq = S.event.seq; const e = S.event; items.push(() => banner(e.icon, e.title, e.text, 'big')); }
